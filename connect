@@ -1,0 +1,47 @@
+#!/bin/bash
+
+# Edit this
+
+OPENCONNECT_USER=
+OPENCONNECT_URL=
+OPENCONNECT_OPTIONS="--authgroup <VPN Group> --servercert <VPN Server Certificate>"
+PROXY_PORT=8888
+
+# Don't touch this
+
+container() {
+	# Ask for password on the commandline
+	stty -echo
+	printf "VPN password: "
+	read OPENCONNECT_PASSWORD
+	stty echo
+	printf "\n\n"
+
+	# Start container with proxy on specified port
+	docker run -it --rm "$@" --privileged \
+		-e OPENCONNECT_URL="$OPENCONNECT_URL" \
+		-e OPENCONNECT_OPTIONS="$OPENCONNECT_OPTIONS" \
+		-e OPENCONNECT_USER="$OPENCONNECT_USER" \
+		-e OPENCONNECT_PASSWORD="$OPENCONNECT_PASSWORD" \
+		-e PROXY_PORT="$PROXY_PORT" \
+		-p $PROXY_PORT:$PROXY_PORT \
+		"wazum/openconnect-proxy:latest"
+}
+
+ssh_proxy() {
+	if hash corkscrew 2>/dev/null; then
+		ssh -o ProxyCommand="corkscrew 127.0.0.1 $PROXY_PORT %h %p" "$@"
+	else
+		printf "The ssh command requires 'corkscrew' to be installed and executable.\n"
+	fi
+}
+
+case $1 in
+	ssh)
+		shift
+	  	ssh_proxy "$@"
+	  	;;
+	*)
+		container "$@"
+	  	;;
+esac
