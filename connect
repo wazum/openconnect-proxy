@@ -4,7 +4,7 @@
 
 OPENCONNECT_USER=
 OPENCONNECT_URL=
-OPENCONNECT_OPTIONS="--authgroup <VPN Group> --servercert <VPN Server Certificate>"
+OPENCONNECT_OPTIONS="--authgroup <VPN Group> --servercert <VPN Server Certificate> --protocol=pulse"
 PROXY_PORT=8888
 
 # Don't touch this

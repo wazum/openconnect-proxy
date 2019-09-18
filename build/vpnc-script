@@ -21,7 +21,7 @@
 ################
 #
 # List of parameters passed through environment
-#* reason                       -- why this script was called, one of: pre-init connect disconnect reconnect
+#* reason                       -- why this script was called, one of: pre-init connect disconnect reconnect attempt-reconnect
 #* VPNGATEWAY                   -- vpn gateway address (always present)
 #* TUNDEV                       -- tunnel device (always present)
 #* INTERNAL_IP4_ADDRESS         -- address (always present)
@@ -88,9 +88,6 @@ if [ ! -d "/var/run/vpnc" ]; then
 	[ -x /sbin/restorecon ] && /sbin/restorecon /var/run/vpnc
 fi
 
-# stupid SunOS: no blubber in /usr/local/bin ... (on stdout)
-IPROUTE="`which ip 2> /dev/null | grep '^/'`"
-
 if ifconfig --help 2>&1 | grep BusyBox > /dev/null; then
 	ifconfig_syntax_inet=""
 else
@@ -98,11 +95,15 @@ else
 fi
 
 if [ "$OS" = "Linux" ]; then
+	IPROUTE="`which ip 2> /dev/null | grep '^/'`"
 	ifconfig_syntax_ptp="pointopoint"
 	route_syntax_gw="gw"
 	route_syntax_del="del"
 	route_syntax_netmask="netmask"
 else
+	# iproute2 is Linux only; if `which ip` returns something on another OS, it's likely an unrelated tool
+	# (see https://github.com/dlenski/openconnect/issues/132#issuecomment-470475009)
+	IPROUTE=""
 	ifconfig_syntax_ptp=""
 	route_syntax_gw=""
 	route_syntax_del="delete"
@@ -116,7 +117,7 @@ else
 	ifconfig_syntax_ptpv6=""
 fi
 
-grep ^hosts /etc/nsswitch.conf|grep resolve >/dev/null 2>&1
+grep ^hosts /etc/nsswitch.conf 2>/dev/null|grep resolve >/dev/null 2>&1
 if [ $? = 0 ];then
 	RESOLVEDENABLED=1
 else
@@ -230,18 +231,18 @@ if [ -n "$IPROUTE" ]; then
 
 	set_vpngateway_route() {
 		$IPROUTE route add `$IPROUTE route get "$VPNGATEWAY" | fix_ip_get_output`
-		$IPROUTE route flush cache
+		$IPROUTE route flush cache 2>/dev/null
 	}
 
 	del_vpngateway_route() {
 		$IPROUTE route $route_syntax_del "$VPNGATEWAY"
-		$IPROUTE route flush cache
+		$IPROUTE route flush cache 2>/dev/null
 	}
 
 	set_default_route() {
 		$IPROUTE route | grep '^default' | fix_ip_get_output > "$DEFAULT_ROUTE_FILE"
 		$IPROUTE route replace default dev "$TUNDEV"
-		$IPROUTE route flush cache
+		$IPROUTE route flush cache 2>/dev/null
 	}
 
 	set_network_route() {
@@ -255,7 +256,7 @@ if [ -n "$IPROUTE" ]; then
 		else
 			$IPROUTE route replace "$NETWORK/$NETMASKLEN" dev "$NETDEV"
 		fi
-		$IPROUTE route flush cache
+		$IPROUTE route flush cache 2>/dev/null
 	}
 
 	set_exclude_route() {
@@ -265,7 +266,7 @@ if [ -n "$IPROUTE" ]; then
 		NETMASK="$2"
 		NETMASKLEN="$3"
 		$IPROUTE route add `$IPROUTE route get "$NETWORK/$NETMASKLEN" | fix_ip_get_output`
-		$IPROUTE route flush cache
+		$IPROUTE route flush cache 2>/dev/null
 	}
 
 	del_exclude_route() {
@@ -275,13 +276,13 @@ if [ -n "$IPROUTE" ]; then
 		NETMASK="$2"
 		NETMASKLEN="$3"
 		$IPROUTE route $route_syntax_del "$NETWORK/$NETMASKLEN"
-		$IPROUTE route flush cache
+		$IPROUTE route flush cache 2>/dev/null
 	}
 
 	reset_default_route() {
 		if [ -s "$DEFAULT_ROUTE_FILE" ]; then
 			$IPROUTE route replace `cat "$DEFAULT_ROUTE_FILE"`
-			$IPROUTE route flush cache
+			$IPROUTE route flush cache 2>/dev/null
 			rm -f -- "$DEFAULT_ROUTE_FILE"
 		fi
 	}
@@ -292,13 +293,13 @@ if [ -n "$IPROUTE" ]; then
 		NETMASKLEN="$3"
 		NETDEV="$4"
 		$IPROUTE route $route_syntax_del "$NETWORK/$NETMASKLEN" dev "$NETDEV"
-		$IPROUTE route flush cache
+		$IPROUTE route flush cache 2>/dev/null
 	}
 
 	set_ipv6_default_route() {
 		# We don't save/restore IPv6 default route; just add a higher-priority one.
 		$IPROUTE -6 route add default dev "$TUNDEV" metric 1
-		$IPROUTE -6 route flush cache
+		$IPROUTE -6 route flush cache 2>/dev/null
 	}
 
 	set_ipv6_network_route() {
@@ -311,7 +312,7 @@ if [ -n "$IPROUTE" ]; then
 		else
 			$IPROUTE -6 route replace "$NETWORK/$NETMASKLEN" dev "$NETDEV"
 		fi
-		$IPROUTE route flush cache
+		$IPROUTE route flush cache 2>/dev/null
 	}
 
 	set_ipv6_exclude_route() {
@@ -320,12 +321,12 @@ if [ -n "$IPROUTE" ]; then
 		NETWORK="$1"
 		NETMASKLEN="$2"
 		$IPROUTE -6 route add `$IPROUTE route get "$NETWORK/$NETMASKLEN" | fix_ip_get_output`
-		$IPROUTE route flush cache
+		$IPROUTE route flush cache 2>/dev/null
 	}
 
 	reset_ipv6_default_route() {
 		$IPROUTE -6 route del default dev "$TUNDEV"
-		$IPROUTE route flush cache
+		$IPROUTE route flush cache 2>/dev/null
 	}
 
 	del_ipv6_network_route() {
@@ -333,7 +334,7 @@ if [ -n "$IPROUTE" ]; then
 		NETMASKLEN="$2"
 		NETDEV="$3"
 		$IPROUTE -6 route del "$NETWORK/$NETMASKLEN" dev "$NETDEV"
-		$IPROUTE -6 route flush cache
+		$IPROUTE -6 route flush cache 2>/dev/null
 	}
 
 	del_ipv6_exclude_route() {
@@ -342,7 +343,7 @@ if [ -n "$IPROUTE" ]; then
 		NETWORK="$1"
 		NETMASKLEN="$2"
 		$IPROUTE -6 route del "$NETWORK/$NETMASKLEN"
-		$IPROUTE -6 route flush cache
+		$IPROUTE -6 route flush cache 2>/dev/null
 	}
 else # use route command
 	get_default_gw() {
@@ -682,7 +683,7 @@ nameserver $i"
 	done
 	if [ -n "$CISCO_DEF_DOMAIN" ]; then
 		NEW_RESOLVCONF="$NEW_RESOLVCONF
-domain $CISCO_DEF_DOMAIN"
+search $CISCO_DEF_DOMAIN"
 	fi
 	echo "$NEW_RESOLVCONF" | /sbin/resolvconf -a $TUNDEV
 }
@@ -881,10 +882,10 @@ do_connect() {
 		while [ $i -lt $CISCO_IPV6_SPLIT_INC ] ; do
 			eval NETWORK="\${CISCO_IPV6_SPLIT_INC_${i}_ADDR}"
 			eval NETMASKLEN="\${CISCO_IPV6_SPLIT_INC_${i}_MASKLEN}"
-			if [ $NETMASKLEN -lt 128 ]; then
-				set_ipv6_network_route "$NETWORK" "$NETMASKLEN" "$TUNDEV"
-			else
+			if [ $NETMASKLEN -eq 0 ]; then
 				set_ipv6_default_route
+			else
+				set_ipv6_network_route "$NETWORK" "$NETMASKLEN" "$TUNDEV"
 			fi
 			i=`expr $i + 1`
 		done
@@ -1018,7 +1019,15 @@ case "$reason" in
 		do_disconnect
 		run_hooks post-disconnect
 		;;
+	attempt-reconnect)
+		# Invoked before each attempt to re-establish the session.
+		# If the underlying physical connection changed, we might
+		# be left with a route to the VPN server through the VPN
+		# itself, which would need to be fixed.
+		run_hooks attempt-reconnect
+		;;
 	reconnect)
+		# After successfully re-establishing the session.
 		run_hooks reconnect
 		;;
 	*)
