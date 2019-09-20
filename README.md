@@ -1,7 +1,9 @@
-# openconnect + tinyproxy
+# openconnect + tinyproxy + microsocks
 
-This Docker image contains an [openconnect client](http://www.infradead.org/openconnect/) and the [tinyproxy proxy server](https://tinyproxy.github.io/)
-on a very small [alpine linux](https://www.alpinelinux.org/) image (requires around 60 MB of download).
+This Docker image contains an [openconnect client](http://www.infradead.org/openconnect/) (version 8.04 with pulse/juniper support) and the [tinyproxy proxy server](https://tinyproxy.github.io/) for http/s connections (default on port 8888) and the [microsocks proxy](https://github.com/rofl0r/microsocks) for socks5 connections (default on port 8889) in a very small [alpine linux](https://www.alpinelinux.org/) image.
+
+You can find the image on docker hub:
+https://hub.docker.com/r/wazum/openconnect-proxy
 
 # Run
 
@@ -9,8 +11,16 @@ First set the variables in `connect` according to your credentials.
 
 	OPENCONNECT_URL=<VPN URL>
 	OPENCONNECT_USER=<VPN User>
-	OPENCONNECT_OPTIONS="--authgroup <VPN Group> --servercert <VPN Server Certificate>"
-	PROXY_PORT=8888
+	OPENCONNECT_OPTIONS="--authgroup <VPN Group> --servercert <VPN Server Certificate> --protocol=<Protocol>"
+
+You can also change the ports used
+
+	HTTPS_PROXY_PORT=8888
+	SOCKS5_PROXY_PORT=8889
+
+If you have the password for your connection in a file, provide the path
+
+	PASSWORD_FILE=/path/to/file
 
 Next start the container with 
 
@@ -42,23 +52,28 @@ Or set environment variables with
 
 # ssh through the proxy
 
-Install _corkscrew_ (e.g. with `brew install corkscrew` on macOS)
-and if the container is running (see above) connect with
+## nc (netcat)
 
-	./connect ssh <user>@<host>
-
-or if you always use the same port simply add the following in your 
-`~/.ssh/config`
+Set a `ProxyCommand` in your `~/.ssh/config` file like
 
 	Host <hostname>
-		User <user>
-		ProxyCommand corkscrew 127.0.0.1 8888 %h %p
+		User                    git
+		ProxyCommand            nc -x 127.0.0.1:8889 %h %p
 
 and your connection will be passed through the proxy.
+The above example is for using git with ssh keys.
+
+## corkscrew 
+
+An alternative is to use software like _corkscrew_ (e.g. install with `brew install corkscrew` on mac OS)
+
+	Host <hostname>
+		User                    <user>
+		ProxyCommand            corkscrew 127.0.0.1 8888 %h %p
 
 # Build
 
 You can build the container yourself with
 
-	docker build -f build/Dockerfile -t wazum/openconnect-proxy:latest ./build
+	docker build -f build/Dockerfile -t wazum/openconnect-proxy:custom ./build
 

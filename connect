@@ -2,46 +2,41 @@
 
 # Edit this
 
+PASSWORD_FILE=
 OPENCONNECT_USER=
 OPENCONNECT_URL=
 OPENCONNECT_OPTIONS="--authgroup <VPN Group> --servercert <VPN Server Certificate> --protocol=pulse"
-PROXY_PORT=8888
+HTTPS_PROXY_PORT=8888
+SOCKS5_PROXY_PORT=8889
 
 # Don't touch this
 
 container() {
-	# Ask for password on the commandline
-	stty -echo
-	printf "VPN password: "
-	read OPENCONNECT_PASSWORD
-	stty echo
-	printf "\n\n"
+	if [ "$PASSWORD_FILE" ]; then
+		OPENCONNECT_PASSWORD="`cat $PASSWORD_FILE`"
+	else
+# Ask for password on the commandline
+		stty -echo
+		printf "VPN password: "
+		read OPENCONNECT_PASSWORD
+		stty echo
+		printf "\n\n"
+	fi
 
 	# Start container with proxy on specified port
-	docker run -it --rm "$@" --privileged \
+	until docker run -it --rm "$@" --privileged --name openconnect-proxy \
 		-e OPENCONNECT_URL="$OPENCONNECT_URL" \
 		-e OPENCONNECT_OPTIONS="$OPENCONNECT_OPTIONS" \
 		-e OPENCONNECT_USER="$OPENCONNECT_USER" \
 		-e OPENCONNECT_PASSWORD="$OPENCONNECT_PASSWORD" \
-		-e PROXY_PORT="$PROXY_PORT" \
-		-p $PROXY_PORT:$PROXY_PORT \
-		"wazum/openconnect-proxy:latest"
+		-e HTTPS_PROXY_PORT="$HTTPS_PROXY_PORT" \
+		-e SOCKS5_PROXY_PORT="$SOCKS5_PROXY_PORT" \
+		-p $HTTPS_PROXY_PORT:$HTTPS_PROXY_PORT \
+		-p $SOCKS5_PROXY_PORT:$SOCKS5_PROXY_PORT \
+		"wazum/openconnect-proxy:latest"; do
+    		echo "openconnect exited with code $?. Restarting process…" >&2
+    		sleep 1
+	done
 }
 
-ssh_proxy() {
-	if hash corkscrew 2>/dev/null; then
-		ssh -o ProxyCommand="corkscrew 127.0.0.1 $PROXY_PORT %h %p" "$@"
-	else
-		printf "The ssh command requires 'corkscrew' to be installed and executable.\n"
-	fi
-}
-
-case $1 in
-	ssh)
-		shift
-	  	ssh_proxy "$@"
-	  	;;
-	*)
-		container "$@"
-	  	;;
-esac
+container "$@"
