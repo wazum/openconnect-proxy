@@ -48,27 +48,36 @@ Or set environment variables with
 	export http_proxy="http://127.0.0.1:8888/"
 	export https_proxy="http://127.0.0.1:8888/"
 
-(composer, git and others use these)
+composer, git and others use these if you don't use the git+ssh protocol.
+For that see the next section.
 
 # ssh through the proxy
 
-## nc (netcat)
+You need nc (netcat), corkscrew or something similar to make this work.
+
+Unfortunately some git clients (e.g. Gitkraken) don't use the settings from ssh config
+and you can't pull/push from a repository that's reachable (DNS resolution) only through VPN.
+
+## nc (netcat, ncat)
 
 Set a `ProxyCommand` in your `~/.ssh/config` file like
 
 	Host <hostname>
-		User                    git
 		ProxyCommand            nc -x 127.0.0.1:8889 %h %p
+
+or (depending on your ncat version)
+
+	Host <hostname>
+		ProxyCommand            ncat --proxy 127.0.0.1:8889 --proxy-type socks5 %h %p
 
 and your connection will be passed through the proxy.
 The above example is for using git with ssh keys.
 
 ## corkscrew 
 
-An alternative is to use software like _corkscrew_ (e.g. install with `brew install corkscrew` on mac OS)
+An alternative is _corkscrew_ (e.g. install with `brew install corkscrew` on mac OS)
 
 	Host <hostname>
-		User                    <user>
 		ProxyCommand            corkscrew 127.0.0.1 8888 %h %p
 
 # Build
