@@ -1,5 +1,5 @@
 FROM alpine:edge
-MAINTAINER Wolfgang Klinger <wolfgang@wazum.com>
+MAINTAINER Colby Taperts <colbytaperts@gmail.com>
 
 # openconnect is not yet available on main
 RUN apk add --no-cache libcrypto1.1 libssl1.1 libstdc++ --repository http://dl-cdn.alpinelinux.org/alpine/edge/main
