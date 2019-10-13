@@ -3,7 +3,7 @@
 This Docker image contains an [openconnect client](http://www.infradead.org/openconnect/) (version 8.04 with pulse/juniper support) and the [tinyproxy proxy server](https://tinyproxy.github.io/) for http/s connections (default on port 8888) and the [microsocks proxy](https://github.com/rofl0r/microsocks) for socks5 connections (default on port 8889) in a very small [alpine linux](https://www.alpinelinux.org/) image.
 
 You can find the image on docker hub:
-https://hub.docker.com/r/colbyt/openconnect-proxy
+https://hub.docker.com/r/wazum/openconnect-proxy
 
 # Run
 
@@ -25,23 +25,23 @@ You can also change the ports used, if not set the following will be used by def
 
 Run container in foreground
 ```
-docker run -it --rm --privileged -e OPENCONNECT_URL=pulse.url.com/example -e OPENCONNECT_OPTIONS='--no-dtls --protocol=pulse --reconnect-timeout 86400' -e OPENCONNECT_USER=<email/uid> --net host colbyt/openconnect-proxy
+docker run -it --rm --privileged -e OPENCONNECT_URL=pulse.url.com/example -e OPENCONNECT_OPTIONS='--no-dtls --protocol=pulse --reconnect-timeout 86400' -e OPENCONNECT_USER=<email/uid> --net host wazum/openconnect-proxy
 ```
 
 Run container in background with multi authentication
 ```
-docker run -d --rm --privileged -e OPENCONNECT_PASSWORD='password' -e OPENCONNECT_PASSWORD_TWO=password_2 -e OPENCONNECT_URL=juniper.url.edu/general -e OPENCONNECT_OPTIONS='--juniper --reconnect-timeout 5' -e OPENCONNECT_USER=<email/uid> --net host colbyt/openconnect-proxy
+docker run -d --rm --privileged -e OPENCONNECT_PASSWORD='password' -e OPENCONNECT_PASSWORD_TWO=password_2 -e OPENCONNECT_URL=juniper.url.edu/general -e OPENCONNECT_OPTIONS='--juniper --reconnect-timeout 5' -e OPENCONNECT_USER=<email/uid> --net host wazum/openconnect-proxy
 ```
 
 In daemon mode you can view the stderr log with
 
 	docker logs <container ID>
-	docker logs `docker ps|grep "colbyt/openconnect-proxy"|awk -F' ' '{print $1}'`
+	docker logs `docker ps|grep "wazum/openconnect-proxy"|awk -F' ' '{print $1}'`
 
 # Configure proxy
 
 The container is connected via openconnect and you can configure your browser
-to use the proxy on port 8888 (see configuration above), 
+to use the proxy on port 8888 (see configuration above),
 e.g. with FoxyProxy or any suitable extension.
 
 Or set environment variables with
@@ -85,5 +85,5 @@ or (depending on your ncat version)
 
 You can build the container yourself with
 
-	docker build -f build/Dockerfile -t colbyt/openconnect-proxy:custom ./build
+	docker build -f build/Dockerfile -t wazum/openconnect-proxy:custom ./build
 
