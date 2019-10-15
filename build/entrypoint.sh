@@ -13,11 +13,11 @@ echo "socks5 proxy listening on $SOCKS5_PROXY_PORT"
 # Start openconnect
 if [[ -z "${OPENCONNECT_PASSWORD}" ]]; then
 # Ask for password
-  openconnect -v -u $OPENCONNECT_USER $OPENCONNECT_OPTIONS $OPENCONNECT_URL
+  openconnect -u $OPENCONNECT_USER $OPENCONNECT_OPTIONS $OPENCONNECT_URL
 elif [[ ! -z "${OPENCONNECT_PASSWORD}" ]] && [[ ! -z "${OPENCONNECT_MFA_CODE}" ]]; then
 # Multi factor authentication (MFA)
-  (echo $OPENCONNECT_PASSWORD; echo $OPENCONNECT_MFA_CODE) | openconnect -v -u $OPENCONNECT_USER $OPENCONNECT_OPTIONS --passwd-on-stdin $OPENCONNECT_URL
+  (echo $OPENCONNECT_PASSWORD; echo $OPENCONNECT_MFA_CODE) | openconnect -u $OPENCONNECT_USER $OPENCONNECT_OPTIONS --passwd-on-stdin $OPENCONNECT_URL
 elif [[ ! -z "${OPENCONNECT_PASSWORD}" ]]; then
 # Standard authentication
-  echo $OPENCONNECT_PASSWORD | openconnect -v -u $OPENCONNECT_USER $OPENCONNECT_OPTIONS --passwd-on-stdin $OPENCONNECT_URL
+  echo $OPENCONNECT_PASSWORD | openconnect -u $OPENCONNECT_USER $OPENCONNECT_OPTIONS --passwd-on-stdin $OPENCONNECT_URL
 fi
