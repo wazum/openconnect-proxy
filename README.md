@@ -54,6 +54,27 @@ In daemon mode you can view the stderr log with `docker logs`:
 
 	docker logs `docker ps|grep "wazum/openconnect-proxy"|awk -F' ' '{print $1}'`
 
+# Use container with docker-compose
+
+```
+  vpn:
+    container_name: openconnect_vpn
+    image: wazum/openconnect-proxy:latest
+    privileged: true
+    env_file:
+      - .env
+    ports:
+      - 8888:8888
+      - 8889:8889
+    networks:
+      - mynetwork
+```
+
+Set the environment variables for _openconnect_ in the `.env` file again (or specify another file) and 
+map the configured ports in the container to your local ports if you want to access the VPN 
+on the host too when running your containers. Otherwise only the docker containers in the same
+network have access to the proxy ports.
+
 # Configure proxy
 
 The container is connected via _openconnect_ and now you can configure your browser
