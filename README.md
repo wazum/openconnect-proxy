@@ -1,55 +1,72 @@
 # openconnect + tinyproxy + microsocks
 
-This Docker image contains an [openconnect client](http://www.infradead.org/openconnect/) (version 8.04 with pulse/juniper support) and the [tinyproxy proxy server](https://tinyproxy.github.io/) for http/s connections (default on port 8888) and the [microsocks proxy](https://github.com/rofl0r/microsocks) for socks5 connections (default on port 8889) in a very small [alpine linux](https://www.alpinelinux.org/) image.
+This Docker image contains an [openconnect client](http://www.infradead.org/openconnect/) (version 8.04 with pulse/juniper support) and the [tinyproxy proxy server](https://tinyproxy.github.io/) for http/s connections (default on port 8888) and the [microsocks proxy](https://github.com/rofl0r/microsocks) for socks5 connections (default on port 8889) in a very small [alpine linux](https://www.alpinelinux.org/) image (around 60 MB).
 
 You can find the image on docker hub:
 https://hub.docker.com/r/wazum/openconnect-proxy
 
-# Run
+# Requirements
 
-First set the variables in `connect` according to your credentials.
+If you don't want to set the environment variables on the command line
+set the environment variables in a `.env` file:
 
-	OPENCONNECT_URL=<VPN URL>
-	OPENCONNECT_USER=<VPN User>
-	OPENCONNECT_OPTIONS="--authgroup <VPN Group> --servercert <VPN Server Certificate> --protocol=<Protocol>"
+	OPENCONNECT_URL=<Gateway URL>
+	OPENCONNECT_USER=<Username>
+	OPENCONNECT_PASSWORD=<Password>
+	OPENCONNECT_OPTIONS=--authgroup <VPN Group> \
+		--servercert <VPN Server Certificate> --protocol=<Protocol> \
+		--reconnect-timeout 86400
 
-You can also change the ports used
+_(don't use quotes around the values!)_
+
+Either set the password in the `.env` file or leave the variable `OPENCONNECT_PASSWORD` unset, so you get prompted when starting up the container.
+
+Optionally set a multi factor authentication code:
+
+	OPENCONNECT_MFA_CODE=<Multi factor authentication code>
+
+You can also change the ports the proxies are listening on (these are the default values):
 
 	HTTPS_PROXY_PORT=8888
 	SOCKS5_PROXY_PORT=8889
 
-If you have the password for your connection in a file, provide the path
+# Run container in foreground
 
-	PASSWORD_FILE=/path/to/file
+To start the container in foreground run:
 
-Next start the container with 
+	docker run -it --rm --privileged --env-file=.env --net host wazum/openconnect-proxy
 
-	chmod 755 ./connect
-	./connect
+Either use `--net host` or `-p 8888:8888 -p 8889:8889` to make the proxy ports available on the host.
 
-The container will be started in the foreground.
-If you want to start it in the background in daemon mode you can call
+Without using a `.env` file set the environment variables on the command line with the docker run option `-e`:
 
-	./connect -d
+	docker run … -e OPENCONNECT_URL=vpn.gateway.com/example \
+	-e OPENCONNECT_OPTIONS='<Openconnect Options>' \
+	-e OPENCONNECT_USER=<Username> …
 
-In daemon mode you can view the stderr log with
+# Run container in background
 
-	docker logs <container ID>
+To start the container in daemon mode (background) set the `-d` option:
+
+	docker run -d -it --rm …
+
+In daemon mode you can view the stderr log with `docker logs`:
+
 	docker logs `docker ps|grep "wazum/openconnect-proxy"|awk -F' ' '{print $1}'`
 
 # Configure proxy
 
-The container is connected via openconnect and you can configure your browser
-to use the proxy on port 8888 (see configuration above), 
-e.g. with FoxyProxy or any suitable extension.
+The container is connected via _openconnect_ and now you can configure your browser
+and other software to use one of the proxies (8888 for http/s or 8889 for socks).
 
-Or set environment variables with
+For example FoxyProxy (available for Firefox, Chrome) is a suitable browser extension.
+
+You may also set environment variables:
 
 	export http_proxy="http://127.0.0.1:8888/"
 	export https_proxy="http://127.0.0.1:8888/"
 
-composer, git and others use these if you don't use the git+ssh protocol.
-For that see the next section.
+composer, git (if you don't use the git+ssh protocol, see below) and others use these.
 
 # ssh through the proxy
 
@@ -85,4 +102,9 @@ An alternative is _corkscrew_ (e.g. install with `brew install corkscrew` on mac
 You can build the container yourself with
 
 	docker build -f build/Dockerfile -t wazum/openconnect-proxy:custom ./build
+
+# Support
+
+You like using my work? Get something for me (surprise! surprise!) from my wishlist on [Amazon](https://smile.amazon.de/hz/wishlist/ls/307SIOOD654GF/) or [help me pay](https://www.paypal.me/wazum) the next pizza or Pho soup (mjam). Thanks a lot!
+
 
