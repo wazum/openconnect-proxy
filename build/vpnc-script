@@ -501,6 +501,10 @@ $LINE" ;;
 	done
 	exec 6<&-
 
+	# Add default Docker nameserver
+	NEW_RESOLVCONF="$NEW_RESOLVCONF
+nameserver 127.0.0.11"
+
 	for i in $INTERNAL_IP4_DNS ; do
 		NEW_RESOLVCONF="$NEW_RESOLVCONF
 nameserver $i"
@@ -676,6 +680,9 @@ restore_resolvconf_openwrt() {
 # === resolv.conf handling via /sbin/resolvconf (Debian, Ubuntu, Gentoo)) =========
 
 modify_resolvconf_manager() {
+	# Add default Docker nameserver
+	NEW_RESOLVCONF="$NEW_RESOLVCONF
+nameserver 127.0.0.11"
 	NEW_RESOLVCONF=""
 	for i in $INTERNAL_IP4_DNS; do
 		NEW_RESOLVCONF="$NEW_RESOLVCONF
