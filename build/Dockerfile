@@ -29,10 +29,7 @@ COPY tinyproxy.conf /etc/tinyproxy.conf
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-ENV HTTPS_PROXY_PORT=${HTTPS_PROXY_PORT:-8888}
-ENV SOCKS5_PROXY_PORT=${SOCKS5_PROXY_PORT:-8889}
-
-EXPOSE ${HTTPS_PROXY_PORT}
-EXPOSE ${SOCKS5_PROXY_PORT}
+EXPOSE 8888
+EXPOSE 8889
 
 ENTRYPOINT ["/entrypoint.sh"]

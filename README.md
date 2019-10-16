@@ -1,6 +1,6 @@
 # openconnect + tinyproxy + microsocks
 
-This Docker image contains an [openconnect client](http://www.infradead.org/openconnect/) (version 8.04 with pulse/juniper support) and the [tinyproxy proxy server](https://tinyproxy.github.io/) for http/s connections (default on port 8888) and the [microsocks proxy](https://github.com/rofl0r/microsocks) for socks5 connections (default on port 8889) in a very small [alpine linux](https://www.alpinelinux.org/) image (around 20 MB).
+This Docker image contains an [openconnect client](http://www.infradead.org/openconnect/) (version 8.04 with pulse/juniper support) and the [tinyproxy proxy server](https://tinyproxy.github.io/) for http/https connections (default on port 8888) and the [microsocks proxy](https://github.com/rofl0r/microsocks) for socks5 connections (default on port 8889) in a very small [alpine linux](https://www.alpinelinux.org/) image (around 20 MB).
 
 You can find the image on docker hub:
 https://hub.docker.com/r/wazum/openconnect-proxy
@@ -17,7 +17,9 @@ set the environment variables in a `.env` file:
 		--servercert <VPN Server Certificate> --protocol=<Protocol> \
 		--reconnect-timeout 86400
 
-_(don't use quotes around the values!)_
+_Don't use quotes around the values!_
+
+See the [openconnect documentation](https://www.infradead.org/openconnect/manual.html) for available options. 
 
 Either set the password in the `.env` file or leave the variable `OPENCONNECT_PASSWORD` unset, so you get prompted when starting up the container.
 
@@ -25,18 +27,14 @@ Optionally set a multi factor authentication code:
 
 	OPENCONNECT_MFA_CODE=<Multi factor authentication code>
 
-You can also change the ports the proxies are listening on (these are the default values):
-
-	HTTPS_PROXY_PORT=8888
-	SOCKS5_PROXY_PORT=8889
-
 # Run container in foreground
 
 To start the container in foreground run:
 
-	docker run -it --rm --privileged --env-file=.env --net host wazum/openconnect-proxy
+	docker run -it --rm --privileged --env-file=.env \
+	  -p 8888:8888 -p 8889:8889 wazum/openconnect-proxy:latest
 
-Either use `--net host` or `-p 8888:8888 -p 8889:8889` to make the proxy ports available on the host.
+The proxies are listening on ports 8888 (http/https) and 8889 (socks). Either use `--net host` or `-p <local port>:8888 -p <local port>:8889` to make the proxy ports available on the host.
 
 Without using a `.env` file set the environment variables on the command line with the docker run option `-e`:
 
@@ -56,29 +54,40 @@ In daemon mode you can view the stderr log with `docker logs`:
 
 # Use container with docker-compose
 
-```
-  vpn:
-    container_name: openconnect_vpn
-    image: wazum/openconnect-proxy:latest
-    privileged: true
-    env_file:
-      - .env
-    ports:
-      - 8888:8888
-      - 8889:8889
-    networks:
-      - mynetwork
-```
+	vpn:
+	  container_name: openconnect_vpn
+	  image: wazum/openconnect-proxy:latest
+	  privileged: true
+	  env_file:
+	    - .env
+	  ports:
+	    - 8888:8888
+	    - 8889:8889
+	  cap_add:
+	    - NET_ADMIN
+	  networks:
+	    - mynetwork
+
 
 Set the environment variables for _openconnect_ in the `.env` file again (or specify another file) and 
 map the configured ports in the container to your local ports if you want to access the VPN 
 on the host too when running your containers. Otherwise only the docker containers in the same
 network have access to the proxy ports.
 
+# Route traffic through VPN container
+
+Let's say you have a `vpn` container defined as above, then add `network_mode` option to your other containers:
+
+	depends_on:
+	  - vpn
+	network_mode: "service:vpn"
+
+Keep in mind that `networks`, `extra_hosts`, etc. and `network_mode` are mutually exclusive!
+
 # Configure proxy
 
 The container is connected via _openconnect_ and now you can configure your browser
-and other software to use one of the proxies (8888 for http/s or 8889 for socks).
+and other software to use one of the proxies (8888 for http/https or 8889 for socks).
 
 For example FoxyProxy (available for Firefox, Chrome) is a suitable browser extension.
 

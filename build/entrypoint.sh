@@ -1,14 +1,9 @@
 #!/bin/sh
 
-# Set proxy port
-sed "s/^Port .*$/Port $HTTPS_PROXY_PORT/" -i /etc/tinyproxy.conf
+sed "s/^Port .*$/Port 8888/" -i /etc/tinyproxy.conf
+/usr/bin/tinyproxy -c /etc/tinyproxy.conf
 
-# Start proxy
-/usr/bin/tinyproxy -c /etc/tinyproxy.conf && echo "HTTP/S proxy listening on $HTTPS_PROXY_PORT"
-
-# Start socks5 proxy
-/usr/local/bin/microsocks -i 0.0.0.0 -p $SOCKS5_PROXY_PORT & 
-echo "socks5 proxy listening on $SOCKS5_PROXY_PORT"
+/usr/local/bin/microsocks -i 0.0.0.0 -p 8889 & 
 
 # Start openconnect
 if [[ -z "${OPENCONNECT_PASSWORD}" ]]; then
