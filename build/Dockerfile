@@ -19,6 +19,13 @@ RUN apk add --no-cache ca-certificates wget \
     && make install \
     && apk del .build-deps wget
 
+RUN apk add --no-cache openssh \
+    && echo "root:docker" | chpasswd \
+    && mkdir -p /root/.ssh \
+    && touch /root/.ssh/authorized_keys \
+    && chmod 700 /root/.ssh \
+    && chmod 600 /root/.ssh/authorized_keys
+
 # Use an up-to-date version of vpnc-script
 # https://www.infradead.org/openconnect/vpnc-script.html
 COPY vpnc-script /etc/vpnc/vpnc-script
@@ -29,10 +36,8 @@ COPY tinyproxy.conf /etc/tinyproxy.conf
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-ENV HTTPS_PROXY_PORT=${HTTPS_PROXY_PORT:-8888}
-ENV SOCKS5_PROXY_PORT=${SOCKS5_PROXY_PORT:-8889}
-
-EXPOSE ${HTTPS_PROXY_PORT}
-EXPOSE ${SOCKS5_PROXY_PORT}
+EXPOSE 8888
+EXPOSE 8889
+EXPOSE 22
 
 ENTRYPOINT ["/entrypoint.sh"]

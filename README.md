@@ -1,6 +1,6 @@
 # openconnect + tinyproxy + microsocks
 
-This Docker image contains an [openconnect client](http://www.infradead.org/openconnect/) (version 8.04 with pulse/juniper support) and the [tinyproxy proxy server](https://tinyproxy.github.io/) for http/s connections (default on port 8888) and the [microsocks proxy](https://github.com/rofl0r/microsocks) for socks5 connections (default on port 8889) in a very small [alpine linux](https://www.alpinelinux.org/) image (around 20 MB).
+This Docker image contains an [openconnect client](http://www.infradead.org/openconnect/) (version 8.04 with pulse/juniper support) and the [tinyproxy proxy server](https://tinyproxy.github.io/) for http/s connections (on port 8888) and the [microsocks proxy](https://github.com/rofl0r/microsocks) for socks5 connections (on port 8889) and a sshd server (on port 22) in a very small [alpine linux](https://www.alpinelinux.org/) image (around 20 MB).
 
 You can find the image on docker hub:
 https://hub.docker.com/r/wazum/openconnect-proxy
@@ -25,24 +25,44 @@ Optionally set a multi factor authentication code:
 
 	OPENCONNECT_MFA_CODE=<Multi factor authentication code>
 
-You can also change the ports the proxies are listening on (these are the default values):
+# SSH server
 
-	HTTPS_PROXY_PORT=8888
-	SOCKS5_PROXY_PORT=8889
+To use the ssh server, mount your public key as volume with the `-v` option:
+
+	docker run … -v ~/.ssh/id_rsa.pub:/tmp/public_key …
+
+or use the root password `docker`. The ssh server is listening on port 22.
+
+Set
+
+	Host 127.0.0.1
+	   StrictHostKeyChecking no
+	   UserKnownHostsFile=/dev/null
+
+in your `~/.ssh/config` on the host.
+
 
 # Run container in foreground
 
 To start the container in foreground run:
 
-	docker run -it --rm --privileged --env-file=.env --net host wazum/openconnect-proxy
+	docker run -it --rm --privileged --env-file=.env --net host wazum/openconnect-proxy:latest
 
-Either use `--net host` or `-p 8888:8888 -p 8889:8889` to make the proxy ports available on the host.
+The proxies are listening on ports 8888 (http/https) and 8889 (socks).
+Either use `--net host` or `-p <local port>:8888 -p <local port>:8889` to make the proxy ports available on the host.
+
+Another example:
+
+	docker run -it --rm --privileged --env-file=.env \
+	  -v ~/.ssh/id_rsa.pub:/tmp/public_key \
+          -p 8888:8888 -p 8889:8889 -p 2222:22 wazum/openconnect-proxy:latest
+
 
 Without using a `.env` file set the environment variables on the command line with the docker run option `-e`:
 
 	docker run … -e OPENCONNECT_URL=vpn.gateway.com/example \
-	-e OPENCONNECT_OPTIONS='<Openconnect Options>' \
-	-e OPENCONNECT_USER=<Username> …
+	  -e OPENCONNECT_OPTIONS='<Openconnect Options>' \
+	  -e OPENCONNECT_USER=<Username> …
 
 # Run container in background
 
@@ -66,6 +86,7 @@ In daemon mode you can view the stderr log with `docker logs`:
     ports:
       - 8888:8888
       - 8889:8889
+      - 22:2222
     networks:
       - mynetwork
 ```
