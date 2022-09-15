@@ -1,5 +1,5 @@
 FROM alpine:edge
-MAINTAINER Wolfgang Klinger <wolfgang@wazum.com>
+LABEL org.opencontainers.image.authors="Wolfgang Klinger <wolfgang@wazum.com>"
 
 RUN apk add --no-cache libcrypto1.1 libssl1.1 libstdc++ --repository http://dl-cdn.alpinelinux.org/alpine/edge/main
 RUN apk add --no-cache oath-toolkit-libpskc --repository http://dl-cdn.alpinelinux.org/alpine/edge/community
@@ -18,10 +18,10 @@ RUN apk add --no-cache ca-certificates wget \
     && make \
     && make install \
     # add vpn-slice with dependencies (dig) https://github.com/dlenski/vpn-slice
-    && apk add --no-cache python3 bind-tools && pip3 install --upgrade pip \
-    && pip3 install https://github.com/dlenski/vpn-slice/archive/master.zip \
-    # always add the docker DNS server
-    && grep -qxF 'nameserver 127.0.0.11' /etc/resolv.conf || echo 'nameserver 127.0.0.11' >> /etc/resolv.conf \
+    && apk add --no-cache python3-dev py3-pip bind-tools && pip3 install --upgrade pip \
+    && pip3 install vpn-slice \
+    # get totp tool
+    && apk add oath-toolkit-oathtool \
     && apk del .build-deps wget
 
 # Use an up-to-date version of vpnc-script

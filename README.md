@@ -23,7 +23,11 @@ See the [openconnect documentation](https://www.infradead.org/openconnect/manual
 
 Either set the password in the `.env` file or leave the variable `OPENCONNECT_PASSWORD` unset, so you get prompted when starting up the container.
 
-Optionally set a multi factor authentication code:
+You can also use multi-factor one-time-password codes in two different ways. If your connection uses a time-based OTP (like Google Authenticator), you can provide the key, and the entrypoint will generate and provide the code whenever it tries to connect:
+
+	OPENCONNECT_TOTP_SECRET=<Key for TOTP>
+
+Otherwise, you can generate the one-time-password yourself and pass it when you start the server:
 
 	OPENCONNECT_MFA_CODE=<Multi factor authentication code>
 
