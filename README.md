@@ -15,7 +15,9 @@ set the environment variables in a `.env` file:
 	OPENCONNECT_PASSWORD=<Password>
 	OPENCONNECT_OPTIONS=--authgroup <VPN Group> \
 		--servercert <VPN Server Certificate> --protocol=<Protocol> \
-		--reconnect-timeout 86400
+		--reconnect-timeout 86400 \
+		--allow-insecure-crypto \ 
+		--servercert <servercert>
 
 _Don't use quotes around the values!_
 
@@ -120,7 +122,7 @@ or (depending on your ncat version)
 and your connection will be passed through the proxy.
 The above example is for using git with ssh keys.
 
-## corkscrew 
+## corkscrew
 
 An alternative is _corkscrew_ (e.g. install with `brew install corkscrew` on mac OS)
 
