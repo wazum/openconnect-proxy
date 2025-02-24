@@ -2,7 +2,7 @@
 #
 # Originally part of vpnc source code:
 # © 2005-2012 Maurice Massar, Jörg Mayer, Antonio Borneo et al.
-# © 2009-2012 David Woodhouse <dwmw2@infradead.org>
+# © 2009-2022 David Woodhouse <dwmw2@infradead.org>, Daniel Lenski <dlenski@gmail.com> et al.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -22,30 +22,37 @@
 #
 # List of parameters passed through environment
 #* reason                       -- why this script was called, one of: pre-init connect disconnect reconnect attempt-reconnect
-#* VPNGATEWAY                   -- vpn gateway address (always present)
+#* VPNGATEWAY                   -- VPN gateway address (always present)
+#* VPNPID                       -- PID of the process controlling the VPN (OpenConnect v9.0+)
 #* TUNDEV                       -- tunnel device (always present)
+#* IDLE_TIMEOUT                 -- gateway's idle timeout in seconds (OpenConnect v8.06+); unused
+#* LOG_LEVEL                    -- log level; ERROR=0, INFO=1, DEBUG=2, TRACE=3 (OpenConnect v9.0+)
 #* INTERNAL_IP4_ADDRESS         -- address (always present)
-#* INTERNAL_IP4_MTU             -- mtu (often unset)
+#* INTERNAL_IP4_MTU             -- MTU (often unset)
 #* INTERNAL_IP4_NETMASK         -- netmask (often unset)
 #* INTERNAL_IP4_NETMASKLEN      -- netmask length (often unset)
 #* INTERNAL_IP4_NETADDR         -- address of network (only present if netmask is set)
-#* INTERNAL_IP4_DNS             -- list of dns servers
-#* INTERNAL_IP4_NBNS            -- list of wins servers
+#* INTERNAL_IP4_DNS             -- list of DNS servers
+#* INTERNAL_IP4_NBNS            -- list of WINS servers
 #* INTERNAL_IP6_ADDRESS         -- IPv6 address
 #* INTERNAL_IP6_NETMASK         -- IPv6 netmask
 #* INTERNAL_IP6_DNS             -- IPv6 list of dns servers
 #* CISCO_DEF_DOMAIN             -- default domain name
 #* CISCO_BANNER                 -- banner from server
+#* CISCO_SPLIT_DNS              -- DNS search domain list
 #* CISCO_SPLIT_INC              -- number of networks in split-network-list
 #* CISCO_SPLIT_INC_%d_ADDR      -- network address
 #* CISCO_SPLIT_INC_%d_MASK      -- subnet mask (for example: 255.255.255.0)
 #* CISCO_SPLIT_INC_%d_MASKLEN   -- subnet masklen (for example: 24)
-#* CISCO_SPLIT_INC_%d_PROTOCOL  -- protocol (often just 0)
-#* CISCO_SPLIT_INC_%d_SPORT     -- source port (often just 0)
-#* CISCO_SPLIT_INC_%d_DPORT     -- destination port (often just 0)
+#* CISCO_SPLIT_INC_%d_PROTOCOL  -- protocol (often just 0); unused
+#* CISCO_SPLIT_INC_%d_SPORT     -- source port (often just 0); unused
+#* CISCO_SPLIT_INC_%d_DPORT     -- destination port (often just 0); unused
 #* CISCO_IPV6_SPLIT_INC         -- number of networks in IPv6 split-network-list
 #* CISCO_IPV6_SPLIT_INC_%d_ADDR -- IPv6 network address
 #* CISCO_IPV6_SPLIT_INC_$%d_MASKLEN -- IPv6 subnet masklen
+#
+# The split tunnel variables above have *_EXC* counterparts for network
+# addresses to be excluded from the VPN tunnel.
 
 # FIXMEs:
 
@@ -59,17 +66,22 @@
 # 2) There are two different functions to set routes: generic routes and the
 #   default route. Why isn't the defaultroute handled via the generic route case?
 # 3) In the split tunnel case, all routes but the default route might get replaced
-#   without getting restored later. We should explicitely check and save them just
+#   without getting restored later. We should explicitly check and save them just
 #   like the defaultroute
 # 4) Replies to a dhcp-server should never be sent into the tunnel
 
 # Section B: Split DNS handling
 
 # 1) Maybe dnsmasq can do something like that
-# 2) Parse dns packets going out via tunnel and redirect them to original dns-server
+# 2) Parse DNS packets going out via tunnel and redirect them to original DNS-server
 
-#env | sort
-#set -x
+# ======== For test logging (CI/CD will uncomment automatically) =========
+
+#TRACE# echo "------------------"
+#TRACE# echo "vpnc-script environment:"
+#TRACE# env | grep -E '^(CISCO_|INTERNAL_IP|VPNGATEWAY|TUNDEV|IDLE_TIMEOUT|reason)' | sort
+#TRACE# echo "------------------"
+#TRACE# set -x
 
 # =========== script (variable) setup ====================================
 
@@ -78,8 +90,22 @@ PATH=/sbin:/usr/sbin:$PATH
 OS="`uname -s`"
 
 HOOKS_DIR=/etc/vpnc
-DEFAULT_ROUTE_FILE=/var/run/vpnc/defaultroute
-RESOLV_CONF_BACKUP=/var/run/vpnc/resolv.conf-backup
+
+# Use the PID of the controlling process (vpnc or OpenConnect) to
+# uniquely identify this VPN connection. Normally, the parent process
+# is a shell, and the grandparent's PID is the relevant one.
+# OpenConnect v9.0+ provides VPNPID, so we don't need to determine it.
+if [ -z "$VPNPID" ]; then
+    VPNPID=$PPID
+    PCMD=`ps -c -o args= -p $PPID`
+    case "$PCMD" in
+        *sh) VPNPID=`ps -o ppid= -p $PPID` ;;
+    esac
+fi
+
+DEFAULT_ROUTE_FILE=/var/run/vpnc/defaultroute.${VPNPID}
+DEFAULT_ROUTE_FILE_IPV6=/var/run/vpnc/defaultroute_ipv6.${VPNPID}
+RESOLV_CONF_BACKUP=/var/run/vpnc/resolv.conf-backup.${VPNPID}
 SCRIPTNAME=`basename $0`
 
 # some systems, eg. Darwin & FreeBSD, prune /var/run on boot
@@ -95,19 +121,31 @@ else
 fi
 
 if [ "$OS" = "Linux" ]; then
-	IPROUTE="`which ip 2> /dev/null | grep '^/'`"
+	IPROUTE="`command -v ip | grep '^/'`"
 	ifconfig_syntax_ptp="pointopoint"
 	route_syntax_gw="gw"
 	route_syntax_del="del"
 	route_syntax_netmask="netmask"
+	route_syntax_inet6="-6"
+	route_syntax_inet6_host="-6"
+	route_syntax_inet6_net="-6"
+	ifconfig_syntax_add_inet6="add"
+	ifconfig_syntax_del() { case "$1" in *:*) echo del "$1" ;; *) echo 0.0.0.0 ;; esac; }
+	netstat_syntax_ipv6="-6"
 else
-	# iproute2 is Linux only; if `which ip` returns something on another OS, it's likely an unrelated tool
+	# iproute2 is Linux only; if `command -v ip` returns something on another OS, it's likely an unrelated tool
 	# (see https://github.com/dlenski/openconnect/issues/132#issuecomment-470475009)
 	IPROUTE=""
 	ifconfig_syntax_ptp=""
 	route_syntax_gw=""
 	route_syntax_del="delete"
 	route_syntax_netmask="-netmask"
+	route_syntax_inet6="-inet6"
+	route_syntax_inet6_host="-inet6 -host"
+	route_syntax_inet6_net="-inet6 -net"
+	ifconfig_syntax_del() { case "$1" in *:*) echo inet6 "$1" delete ;; *) echo "$1" delete ;; esac; }
+	ifconfig_syntax_add_inet6="inet6"
+	netstat_syntax_ipv6="-f inet6"
 fi
 if [ "$OS" = "SunOS" ]; then
 	route_syntax_interface="-interface"
@@ -117,33 +155,69 @@ else
 	ifconfig_syntax_ptpv6=""
 fi
 
-grep ^hosts /etc/nsswitch.conf 2>/dev/null|grep resolve >/dev/null 2>&1
-if [ $? = 0 ];then
-	RESOLVEDENABLED=1
-else
-	RESOLVEDENABLED=0
-fi
+detect_resolved_nss_resolve() {
+	# Detect usage of systemd-resolved via nss-resolve
+	# https://www.freedesktop.org/software/systemd/man/nss-resolve.html
+	grep '^hosts' /etc/nsswitch.conf 2>/dev/null | grep resolve >/dev/null 2>&1
+}
+
+detect_resolved_nss_dns() {
+	# Detect usage of systemd-resolved via nss-dns
+	# https://www.freedesktop.org/software/systemd/man/systemd-resolved.service.html
+	grep '^hosts' /etc/nsswitch.conf 2>/dev/null | grep dns >/dev/null 2>&1 && readlink /etc/resolv.conf | grep -e '/run/systemd/resolve/stub-resolv.conf$' -e '/usr/lib/systemd/resolv.conf$' -e '/run/systemd/resolve/resolv.conf$' >/dev/null 2>&1
+}
+
+detect_resolved_etc_files() {
+	detect_resolved_nss_resolve || detect_resolved_nss_dns
+}
+
+detect_resolved_manager() {
+	# For systemd-resolved (version 239 and above)
+	detect_resolved_etc_files && /usr/bin/resolvectl status >/dev/null 2>&1
+}
+
+detect_resolved_manager_old() {
+	# For systemd-resolved (version 229 and above)
+	local dest
+	dest='org.freedesktop.resolve1'
+	detect_resolved_etc_files && /usr/bin/busctl status "$dest" >/dev/null 2>&1
+}
 
 if [ -r /etc/openwrt_release ] && [ -n "$OPENWRT_INTERFACE" ]; then
-        . /etc/functions.sh
+	. /etc/functions.sh
 	include /lib/network
 	MODIFYRESOLVCONF=modify_resolvconf_openwrt
 	RESTORERESOLVCONF=restore_resolvconf_openwrt
-elif [ -x /usr/bin/busctl ] && [ ${RESOLVEDENABLED} = 1 ]; then  # For systemd-resolved (version 229 and above)
+elif [ -x /usr/bin/resolvectl ] && detect_resolved_manager; then
+	# For systemd-resolved (version 239 and above)
 	MODIFYRESOLVCONF=modify_resolved_manager
 	RESTORERESOLVCONF=restore_resolved_manager
-elif [ -x /sbin/resolvconf ]; then # Optional tool on Debian, Ubuntu, Gentoo and FreeBSD
+elif [ -x /usr/bin/busctl ] && detect_resolved_manager_old; then
+	# For systemd-resolved (version 229 and above)
+	MODIFYRESOLVCONF=modify_resolved_manager_old
+	RESTORERESOLVCONF=restore_resolved_manager_old
+elif [ -x /sbin/resolvconf ] && [ "`basename $(readlink /sbin/resolvconf) 2> /dev/null`" != resolvectl ]; then
+	# Optional tool on Debian, Ubuntu, Gentoo, FreeBSD and DragonFly BSD
+	# (ignored if symlink to resolvctl, created by some versions of systemd-resolved)
 	MODIFYRESOLVCONF=modify_resolvconf_manager
 	RESTORERESOLVCONF=restore_resolvconf_manager
-elif [ -x /sbin/netconfig ]; then # tool on Suse after 11.1
+elif [ -x /sbin/netconfig ] && [ ! -f /etc/slackware-version ]; then
+	# tool on Suse after 11.1
+	# Slackware's netconfig is an unrelated tool that should not be invoked here
+	# (see https://www.linuxquestions.org/questions/slackware-14/vpnc-on-slackware-14-2-is-bringing-up-network-configuration-dialog-each-time-4175595447/#post5646866)
 	MODIFYRESOLVCONF=modify_resolvconf_suse_netconfig
 	RESTORERESOLVCONF=restore_resolvconf_suse_netconfig
-elif [ -x /sbin/modify_resolvconf ]; then # Mandatory tool on Suse earlier than 11.1
+elif [ -x /sbin/modify_resolvconf ]; then
+	# Mandatory tool on Suse earlier than 11.1
 	MODIFYRESOLVCONF=modify_resolvconf_suse
 	RESTORERESOLVCONF=restore_resolvconf_suse
 elif [ -x /usr/sbin/unbound-control ] && /usr/sbin/unbound-control status > /dev/null 2>&1; then
 	MODIFYRESOLVCONF=modify_resolvconf_unbound
 	RESTORERESOLVCONF=restore_resolvconf_unbound
+elif [ -x /usr/sbin/rcctl ] && /usr/sbin/rcctl check resolvd >/dev/null; then
+	# OpenBSD's resolvd by sending route messages
+	MODIFYRESOLVCONF=modify_resolvconf_resolvd
+	RESTORERESOLVCONF=restore_resolvconf_resolvd
 else # Generic for any OS
 	MODIFYRESOLVCONF=modify_resolvconf_generic
 	RESTORERESOLVCONF=restore_resolvconf_generic
@@ -156,9 +230,9 @@ run_hooks() {
 	HOOK="$1"
 
 	if [ -d ${HOOKS_DIR}/${HOOK}.d ]; then
-	    for script in ${HOOKS_DIR}/${HOOK}.d/* ; do
-		[ -f $script ] && . $script
-	    done
+		for script in ${HOOKS_DIR}/${HOOK}.d/* ; do
+			[ -f $script ] && . $script
+		done
 	fi
 }
 
@@ -188,37 +262,26 @@ do_ifconfig() {
 	fi
 
 	if [ -n "$INTERNAL_IP4_NETMASK" ]; then
-		set_network_route "$INTERNAL_IP4_NETADDR" "$INTERNAL_IP4_NETMASK" "$INTERNAL_IP4_NETMASKLEN" "$TUNDEV"
+		set_ipv4_network_route "$INTERNAL_IP4_NETADDR" "$INTERNAL_IP4_NETMASK" "$INTERNAL_IP4_NETMASKLEN" "$TUNDEV"
 	fi
 
 	# If the netmask is provided, it contains the address _and_ netmask
 	if [ -n "$INTERNAL_IP6_ADDRESS" ] && [ -z "$INTERNAL_IP6_NETMASK" ]; then
-	    INTERNAL_IP6_NETMASK="$INTERNAL_IP6_ADDRESS/128"
+		INTERNAL_IP6_NETMASK="$INTERNAL_IP6_ADDRESS/128"
 	fi
 	if [ -n "$INTERNAL_IP6_NETMASK" ]; then
-	    if [ -n "$IPROUTE" ]; then
-		$IPROUTE -6 addr add $INTERNAL_IP6_NETMASK dev $TUNDEV
-	    else
-		# Unlike for Legacy IP, we don't specify the dest_address
-		# here on *BSD. OpenBSD for one will refuse to accept
-		# incoming packets to that address if we do.
-		# OpenVPN does the same (gives dest_address for Legacy IP
-		# but not for IPv6).
-		# Only Solaris needs it; hence $ifconfig_syntax_ptpv6
-	        ifconfig "$TUNDEV" inet6 $INTERNAL_IP6_NETMASK $ifconfig_syntax_ptpv6 mtu $MTU up
-	    fi
+		if [ -n "$IPROUTE" ]; then
+			$IPROUTE -6 addr add $INTERNAL_IP6_NETMASK dev $TUNDEV
+		else
+			# Unlike for Legacy IP, we don't specify the dest_address
+			# here on *BSD. OpenBSD for one will refuse to accept
+			# incoming packets to that address if we do.
+			# OpenVPN does the same (gives dest_address for Legacy IP
+			# but not for IPv6).
+			# Only Solaris needs it; hence $ifconfig_syntax_ptpv6
+			ifconfig "$TUNDEV" $ifconfig_syntax_add_inet6 $INTERNAL_IP6_NETMASK $ifconfig_syntax_ptpv6 mtu $MTU up
+		fi
 	fi
-}
-
-destroy_tun_device() {
-	case "$OS" in
-	NetBSD|OpenBSD) # and probably others...
-		ifconfig "$TUNDEV" destroy
-		;;
-	FreeBSD)
-		ifconfig "$TUNDEV" destroy > /dev/null 2>&1 &
-		;;
-	esac
 }
 
 # =========== route handling ====================================
@@ -226,26 +289,51 @@ destroy_tun_device() {
 if [ -n "$IPROUTE" ]; then
 	fix_ip_get_output () {
 		sed -e 's/ /\n/g' | \
-		    sed -ne '1p;/via/{N;p};/dev/{N;p};/src/{N;p};/mtu/{N;p}'
+		    sed -ne "1 s|\$|${1}|p;/via/{N;p};/dev/{N;p};/src/{N;p};/mtu/{N;p};/metric/{N;p};/onlink/{p}"
 	}
 
+        # returns all routes to a destination *except* those through $TUNDEV,
+        # sorted by increasing metric (with absent metric as last)
+        list_non_loopback_routes () {
+            echo "$1" | grep -q : && FAMILY=-6 ROOT=::/0 || FAMILY=-4 ROOT=0/0
+		# put metric in front, sort by metric, then chop off first two fields (metric and destination)
+		$IPROUTE $FAMILY route show to "$1" root "$ROOT" |
+		    awk '/dev '"$TUNDEV"'/ { next; } { printf "%s %s\n", (match($0, /metric ([^ ]+)/) ? substr($0, RSTART+7, RLENGTH-7) : 4294967295), $0; }' |
+		    sort -n | cut -d' ' -f3-
+        }
+
 	set_vpngateway_route() {
-		$IPROUTE route add `$IPROUTE route get "$VPNGATEWAY" | fix_ip_get_output`
-		$IPROUTE route flush cache 2>/dev/null
+		# We'll attempt to add a host route to the gateway through every route that matches
+		# its address (excluding those through TUNDEV because the goal is to avoid loopback).
+		echo "$VPNGATEWAY" | grep -q : && FAMILY=-6 || FAMILY=-4
+
+		list_non_loopback_routes "$VPNGATEWAY" |
+		while read LINE ; do
+			# We do not want to use 'replace', since a route to the gateway that already
+			# exists is mostly likely the correct one (e.g. the case of a reconnect attempt
+			# after dead-peer detection, but no change in the underlying network devices).
+			$IPROUTE $FAMILY route add `echo "$VPNGATEWAY $LINE" | fix_ip_get_output` 2>/dev/null
+		done
+		if [ $FAMILY != -4 ]; then
+			$IPROUTE $FAMILY route flush cache 2>/dev/null
+		fi
 	}
 
 	del_vpngateway_route() {
+		echo "$VPNGATEWAY" | grep -q : && FAMILY=-6 || FAMILY=-4
+
 		$IPROUTE route $route_syntax_del "$VPNGATEWAY"
-		$IPROUTE route flush cache 2>/dev/null
+		if [ $FAMILY != -4 ]; then
+			$IPROUTE $FAMILY route flush cache 2>/dev/null
+		fi
 	}
 
-	set_default_route() {
+	set_ipv4_default_route() {
 		$IPROUTE route | grep '^default' | fix_ip_get_output > "$DEFAULT_ROUTE_FILE"
 		$IPROUTE route replace default dev "$TUNDEV"
-		$IPROUTE route flush cache 2>/dev/null
 	}
 
-	set_network_route() {
+	set_ipv4_network_route() {
 		NETWORK="$1"
 		NETMASK="$2"
 		NETMASKLEN="$3"
@@ -256,44 +344,42 @@ if [ -n "$IPROUTE" ]; then
 		else
 			$IPROUTE route replace "$NETWORK/$NETMASKLEN" dev "$NETDEV"
 		fi
-		$IPROUTE route flush cache 2>/dev/null
 	}
 
-	set_exclude_route() {
+	set_ipv4_exclude_route() {
 		# add explicit route to keep current routing for this target
 		# (keep traffic separate from VPN tunnel)
 		NETWORK="$1"
 		NETMASK="$2"
 		NETMASKLEN="$3"
-		$IPROUTE route add `$IPROUTE route get "$NETWORK/$NETMASKLEN" | fix_ip_get_output`
-		$IPROUTE route flush cache 2>/dev/null
+		list_non_loopback_routes "$NETWORK/$NETMASKLEN" |
+		while read LINE ; do
+			$IPROUTE route add `echo "$NETWORK/$NETMASKLEN $LINE" | fix_ip_get_output` 2>/dev/null
+		done
 	}
 
-	del_exclude_route() {
+	del_ipv4_exclude_route() {
 		# FIXME: In theory, this could delete existing routes which are
-		# identical to split-exclude routes specificed by VPNGATEWAY
+		# identical to split-exclude routes specified by VPNGATEWAY
 		NETWORK="$1"
 		NETMASK="$2"
 		NETMASKLEN="$3"
 		$IPROUTE route $route_syntax_del "$NETWORK/$NETMASKLEN"
-		$IPROUTE route flush cache 2>/dev/null
 	}
 
-	reset_default_route() {
+	reset_ipv4_default_route() {
 		if [ -s "$DEFAULT_ROUTE_FILE" ]; then
 			$IPROUTE route replace `cat "$DEFAULT_ROUTE_FILE"`
-			$IPROUTE route flush cache 2>/dev/null
 			rm -f -- "$DEFAULT_ROUTE_FILE"
 		fi
 	}
 
-	del_network_route() {
+	del_ipv4_network_route() {
 		NETWORK="$1"
 		NETMASK="$2"
 		NETMASKLEN="$3"
 		NETDEV="$4"
 		$IPROUTE route $route_syntax_del "$NETWORK/$NETMASKLEN" dev "$NETDEV"
-		$IPROUTE route flush cache 2>/dev/null
 	}
 
 	set_ipv6_default_route() {
@@ -312,21 +398,18 @@ if [ -n "$IPROUTE" ]; then
 		else
 			$IPROUTE -6 route replace "$NETWORK/$NETMASKLEN" dev "$NETDEV"
 		fi
-		$IPROUTE route flush cache 2>/dev/null
+		$IPROUTE -6 route flush cache 2>/dev/null
 	}
 
 	set_ipv6_exclude_route() {
-		# add explicit route to keep current routing for this target
-		# (keep traffic separate from VPN tunnel)
 		NETWORK="$1"
 		NETMASKLEN="$2"
-		$IPROUTE -6 route add `$IPROUTE route get "$NETWORK/$NETMASKLEN" | fix_ip_get_output`
-		$IPROUTE route flush cache 2>/dev/null
+		set_ipv4_exclude_route "$NETWORK" nomask "$NETMASKLEN"
 	}
 
 	reset_ipv6_default_route() {
 		$IPROUTE -6 route del default dev "$TUNDEV"
-		$IPROUTE route flush cache 2>/dev/null
+		$IPROUTE -6 route flush cache 2>/dev/null
 	}
 
 	del_ipv6_network_route() {
@@ -339,7 +422,7 @@ if [ -n "$IPROUTE" ]; then
 
 	del_ipv6_exclude_route() {
 		# FIXME: In theory, this could delete existing routes which are
-		# identical to split-exclude routes specificed by VPNGATEWAY
+		# identical to split-exclude routes specified by VPNGATEWAY
 		NETWORK="$1"
 		NETMASKLEN="$2"
 		$IPROUTE -6 route del "$NETWORK/$NETMASKLEN"
@@ -347,28 +430,39 @@ if [ -n "$IPROUTE" ]; then
 	}
 else # use route command
 	get_default_gw() {
-		# isn't -n supposed to give --numeric output?
-		# apperently not...
-		# Get rid of lines containing IPv6 addresses (':')
-		netstat -r -n | awk '/:/ { next; } /^(default|0\.0\.0\.0)/ { print $2; }'
+		# Intended behavior, starting with `netstat -r -n` output:
+		# - keep lines starting with 'default' or '0.0.0.0', but exclude bogus routes '0.0.0.0/nn' where nn != 0
+		# - remove lines containing IPv6 addresses (':')
+		# - remove lines for link-local routes (https://superuser.com/a/1067742)
+		# - remove lines containing $TUNDEV (we don't want loopback)
+		netstat -r -n | awk '/:/ { next; } /link#/ { next; } /^(default|0\.0\.0\.0([[:space:]]|\/0))/ { print $2; exit; } /[[:space:]]'"$TUNDEV"'([[:space:]]|$)/ { next; }'
 	}
 
 	set_vpngateway_route() {
-		route add -host "$VPNGATEWAY" $route_syntax_gw "`get_default_gw`"
+		# Unlike with iproute2, there is no way to determine which current
+		# route(s) match the VPN gateway, so we simply find a default
+		# route and use its gateway.
+		case "$VPNGATEWAY" in
+		*:*)	route add $route_syntax_inet6_host "$VPNGATEWAY" $route_syntax_gw "`get_ipv6_default_gw`";;
+		*)	route add -host "$VPNGATEWAY" $route_syntax_gw "`get_default_gw`";;
+		esac
 	}
 
 	del_vpngateway_route() {
-		route $route_syntax_del -host "$VPNGATEWAY" $route_syntax_gw "`get_default_gw`"
+		case "$VPNGATEWAY" in
+		*:*)	route $route_syntax_del $route_syntax_inet6_host "$VPNGATEWAY" $route_syntax_gw "`get_ipv6_default_gw`";;
+		*)	route $route_syntax_del -host "$VPNGATEWAY" $route_syntax_gw "`get_default_gw`";;
+		esac
 	}
 
-	set_default_route() {
+	set_ipv4_default_route() {
 		DEFAULTGW="`get_default_gw`"
 		echo "$DEFAULTGW" > "$DEFAULT_ROUTE_FILE"
 		route $route_syntax_del default $route_syntax_gw "$DEFAULTGW"
 		route add default $route_syntax_gw "$INTERNAL_IP4_ADDRESS" $route_syntax_interface
 	}
 
-	set_network_route() {
+	set_ipv4_network_route() {
 		NETWORK="$1"
 		NETMASK="$2"
 		NETMASKLEN="$3"
@@ -380,12 +474,14 @@ else # use route command
 		route add -net "$NETWORK" $route_syntax_netmask "$NETMASK" $route_syntax_gw "$NETGW" $route_syntax_interface
 	}
 
-	set_exclude_route() {
+	set_ipv4_exclude_route() {
 		NETWORK="$1"
 		NETMASK="$2"
 		NETMASKLEN="$3"
+		DEFAULTGW="${DEFAULTGW:-`get_default_gw`}"
 		if [ -z "$DEFAULTGW" ]; then
-			DEFAULTGW="`get_default_gw`"
+			echo "cannot find route for exclude route $NETWORK/$NETMASKLEN, ignoring" >&2
+			return
 		fi
 		# Add explicit route to keep traffic for this target separate
 		# from tunnel. FIXME: We use default gateway - this is our best
@@ -393,7 +489,7 @@ else # use route command
 		route add -net "$NETWORK" $route_syntax_netmask "$NETMASK" $route_syntax_gw "$DEFAULTGW" $route_syntax_interface
 	}
 
-	del_exclude_route() {
+	del_ipv4_exclude_route() {
 		# FIXME: This can delete existing routes in case they're
 		# identical to split-exclude routes specified by VPNGATEWAY
 		NETWORK="$1"
@@ -402,15 +498,15 @@ else # use route command
 		route $route_syntax_del -net "$NETWORK" $route_syntax_netmask "$NETMASK"
 	}
 
-	reset_default_route() {
+	reset_ipv4_default_route() {
 		if [ -s "$DEFAULT_ROUTE_FILE" ]; then
-			route $route_syntax_del default $route_syntax_gw "`get_default_gw`" $route_syntax_interface
+			route $route_syntax_del default $route_syntax_gw `get_default_gw` $route_syntax_interface
 			route add default $route_syntax_gw `cat "$DEFAULT_ROUTE_FILE"`
 			rm -f -- "$DEFAULT_ROUTE_FILE"
 		fi
 	}
 
-	del_network_route() {
+	del_ipv4_network_route() {
 		NETWORK="$1"
 		NETMASK="$2"
 		NETMASKLEN="$3"
@@ -422,54 +518,84 @@ else # use route command
 		route $route_syntax_del -net "$NETWORK" $route_syntax_netmask "$NETMASK" $route_syntax_gw "$NETGW"
 	}
 
+	get_ipv6_default_gw() {
+		# Intended behavior, starting with `netstat -r -n` IPv6 output:
+		# - keep lines starting with 'default' or '::'
+		# - append %$interface to link-local routes (fe80::/10)
+	        # - remove lines for loopback interface (lo)
+		# - remove lines containing $TUNDEV (we don't want loopback)
+		# FIXME: is there a better way to exclude loopback routes than filtering interface /^lo/?
+		netstat -r -n $netstat_syntax_ipv6 | awk '/^(default|::\/0)/ { if ($NF!~/^lo/ && $NF!~/'"$TUNDEV"'([[:space:]]|$)/) { print ($2~/^fe[89ab]/ ? $2"%"$NF : $2); } }'
+	}
+
 	set_ipv6_default_route() {
-		route add -inet6 default "$INTERNAL_IP6_ADDRESS" $route_syntax_interface
+		DEFAULTGW="`get_ipv6_default_gw`"
+		echo "$DEFAULTGW" > "$DEFAULT_ROUTE_FILE_IPV6"
+		route $route_syntax_del $route_syntax_inet6 default $route_syntax_gw "$DEFAULTGW"
+		route add $route_syntax_inet6 default $route_syntax_gw "$INTERNAL_IP6_ADDRESS" $route_syntax_interface
 	}
 
 	set_ipv6_network_route() {
 		NETWORK="$1"
 		NETMASK="$2"
+		DEVICE="$3"
 		if [ -n "$4" ]; then
 			NETGW="$4"
+		elif [ "$OS" = "Linux" ]; then
+			route add $route_syntax_inet6_net "$NETWORK/$NETMASK" dev "$DEVICE"
+			return
 		else
 			NETGW="$INTERNAL_IP6_ADDRESS"
 		fi
 
-		route add -inet6 -net "$NETWORK/$NETMASK" "$NETGW" $route_syntax_interface
+		route add $route_syntax_inet6_net "$NETWORK/$NETMASK" $route_syntax_gw "$NETGW" $route_syntax_interface
 		:
 	}
 
 	set_ipv6_exclude_route() {
 		NETWORK="$1"
 		NETMASK="$2"
+		IPV6DEFAULTGW="${IPV6DEFAULTGW:-`get_ipv6_default_gw`}"
+		if [ -z "$IPV6DEFAULTGW" ]; then
+			echo "cannot find route for exclude route $NETWORK/$NETMASKLEN, ignoring" >&2
+			return
+		fi
 		# Add explicit route to keep traffic for this target separate
 		# from tunnel. FIXME: We use default gateway - this is our best
 		# guess in absence of "ip" command to query effective route.
-		route add -inet6 -net "$NETWORK/$NETMASK" "`get_default_gw`" $route_syntax_interface
+		route add $route_syntax_inet6_net "$NETWORK/$NETMASK" "$IPV6DEFAULTGW" $route_syntax_interface
 		:
 	}
 
 	reset_ipv6_default_route() {
-		route $route_syntax_del -inet6 default "$INTERNAL_IP6_ADDRESS"
+		if [ -s "$DEFAULT_ROUTE_FILE_IPV6" ]; then
+			route $route_syntax_del $route_syntax_inet6 default $route_syntax_gw "`get_ipv6_default_gw`" $route_syntax_interface
+			route add $route_syntax_inet6 default $route_syntax_gw `cat "$DEFAULT_ROUTE_FILE_IPV6"`
+			rm -f -- "$DEFAULT_ROUTE_FILE_IPV6"
+		fi
 		:
 	}
 
 	del_ipv6_network_route() {
 		NETWORK="$1"
 		NETMASK="$2"
+		DEVICE="$3"
 		if [ -n "$4" ]; then
 			NETGW="$4"
+		elif [ "$OS" = "Linux" ]; then
+			route $route_syntax_del $route_syntax_inet6 "$NETWORK/$NETMASK" dev "$DEVICE"
+			return
 		else
 			NETGW="$INTERNAL_IP6_ADDRESS"
 		fi
-		route $route_syntax_del -inet6 "$NETWORK/$NETMASK" "$NETGW"
+		route $route_syntax_del $route_syntax_inet6 "$NETWORK/$NETMASK" $route_syntax_gw "$NETGW"
 		:
 	}
 
 	del_ipv6_exclude_route() {
 		NETWORK="$1"
 		NETMASK="$2"
-		route $route_syntax_del -inet6 "$NETWORK/$NETMASK"
+		route $route_syntax_del $route_syntax_inet6 "$NETWORK/$NETMASK"
 		:
 	}
 
@@ -500,10 +626,6 @@ $LINE" ;;
 		esac
 	done
 	exec 6<&-
-
-	# Add default Docker nameserver
-	NEW_RESOLVCONF="$NEW_RESOLVCONF
-nameserver 127.0.0.11"
 
 	for i in $INTERNAL_IP4_DNS ; do
 		NEW_RESOLVCONF="$NEW_RESOLVCONF
@@ -584,6 +706,10 @@ search $DOMAINS"
 						close
 					EOF
 				fi
+				# For newer MacOS versions it is needed to set DNS
+				ACTIVE_INTERFACE=`route -n get default | grep interface | awk '{print $2}'`
+				ACTIVE_NETWORK_SERVICE=`networksetup -listnetworkserviceorder | grep -B 1 "$ACTIVE_INTERFACE" | head -n 1 | awk '/\([0-9]+\)/{ print }'|cut -d " " -f2-`
+				networksetup -setdnsservers "$ACTIVE_NETWORK_SERVICE" $INTERNAL_IP4_DNS
 				;;
 		esac
 	fi
@@ -613,17 +739,22 @@ restore_resolvconf_generic() {
 				# to list of used DNS servers
 				if [ -n "$CISCO_SPLIT_INC" ]; then
 					SERVICE=`echo "show State:/Network/Global/IPv4" | scutil | grep -oE '[a-fA-F0-9]{8}-([a-fA-F0-9]{4}-){3}[a-fA-F0-9]{12}'`
-					SERVICE_DNS=`echo "show State:/Network/Service/$SERVICE/DNS" | scutil | grep -oE '([0-9]{1,3}[\.]){3}[0-9]{1,3}' | xargs`
-					if [ X"$SERVICE_DNS" != X"$INTERNAL_IP4_DNS" ]; then
+					SERVICE_DNS=`echo "show State:/Network/Service/$SERVICE/DNS" | scutil | grep -oE '([0-9]{1,3}[\.]){3}[0-9]{1,3}'`
+					FILTERED_SERVICE_DNS=`echo "$SERVICE_DNS" | grep -Fv "$(echo $INTERNAL_IP4_DNS | tr ' ' '\n')" | xargs`
+					if [ -n "$FILTERED_SERVICE_DNS" ]; then
 						scutil >/dev/null 2>&1 <<-EOF
 							open
 							get State:/Network/Service/$SERVICE/DNS
-							d.add ServerAddresses * ${SERVICE_DNS##$INTERNAL_IP4_DNS}
+							d.add ServerAddresses * ${FILTERED_SERVICE_DNS}
 							set State:/Network/Service/$SERVICE/DNS
 							close
 						EOF
 					fi
 				fi
+				# For newer MacOS versions it is needed to unset DNS
+				ACTIVE_INTERFACE=`route -n get default | grep interface | awk '{print $2}'`
+				ACTIVE_NETWORK_SERVICE=`networksetup -listnetworkserviceorder | grep -B 1 "$ACTIVE_INTERFACE" | head -n 1 | awk '/\([0-9]+\)/{ print }'|cut -d " " -f2-`
+				networksetup -setdnsservers "$ACTIVE_NETWORK_SERVICE" Empty
 				;;
 		esac
 	fi
@@ -677,12 +808,10 @@ modify_resolvconf_openwrt() {
 restore_resolvconf_openwrt() {
 	remove_dns $OPENWRT_INTERFACE
 }
+
 # === resolv.conf handling via /sbin/resolvconf (Debian, Ubuntu, Gentoo)) =========
 
 modify_resolvconf_manager() {
-	# Add default Docker nameserver
-	NEW_RESOLVCONF="$NEW_RESOLVCONF
-nameserver 127.0.0.11"
 	NEW_RESOLVCONF=""
 	for i in $INTERNAL_IP4_DNS; do
 		NEW_RESOLVCONF="$NEW_RESOLVCONF
@@ -699,6 +828,8 @@ restore_resolvconf_manager() {
 	/sbin/resolvconf -d $TUNDEV
 }
 
+# === resolv.conf handling via systemd-resolved =========
+
 AF_INET=2
 
 get_if_index() {
@@ -711,7 +842,7 @@ busctl_call() {
 	local dest node
 	dest=org.freedesktop.resolve1
 	node=/org/freedesktop/resolve1
-	busctl call "$dest" "${node}" "${dest}.Manager" "$@"
+	/usr/bin/busctl call "$dest" "$node" "${dest}.Manager" "$@"
 }
 
 busctl_set_nameservers() {
@@ -726,6 +857,14 @@ busctl_set_nameservers() {
 	busctl_call SetLinkDNS 'ia(iay)' ${args}
 }
 
+resolvectl_set_nameservers() {
+	local if_index addresses
+	if_index=$1
+	shift
+	addresses="$@"
+	/usr/bin/resolvectl dns $if_index $addresses
+}
+
 busctl_set_search() {
 	local if_index domains args domain
 	if_index=$1
@@ -738,7 +877,25 @@ busctl_set_search() {
 	busctl_call SetLinkDomains 'ia(sb)' ${args}
 }
 
+resolvectl_set_search() {
+	local if_index domains
+	if_index=$1
+	shift
+	domains="$@"
+	/usr/bin/resolvectl domain $if_index $domains
+}
+
 modify_resolved_manager() {
+	local if_index split_dns_list
+	if_index=$(get_if_index $TUNDEV)
+	split_dns_list=$(echo $CISCO_SPLIT_DNS | tr ',' ' ')
+	resolvectl_set_nameservers $if_index $INTERNAL_IP4_DNS
+	if [ -n "$CISCO_DEF_DOMAIN" ] || [ -n "$split_dns_list" ]; then
+		resolvectl_set_search $if_index $CISCO_DEF_DOMAIN $split_dns_list
+	fi
+}
+
+modify_resolved_manager_old() {
 	local if_index
 	if_index=$(get_if_index $TUNDEV)
 	busctl_set_nameservers $if_index $INTERNAL_IP4_DNS
@@ -748,6 +905,12 @@ modify_resolved_manager() {
 }
 
 restore_resolved_manager() {
+	local if_index
+	if_index=$(get_if_index $TUNDEV)
+	/usr/bin/resolvectl revert $if_index
+}
+
+restore_resolved_manager_old() {
 	local if_index
 	if_index=$(get_if_index $TUNDEV)
 	busctl_call RevertLink 'i' $if_index
@@ -760,6 +923,11 @@ modify_resolvconf_unbound() {
 		/usr/sbin/unbound-control forward_add +i ${CISCO_DEF_DOMAIN} ${INTERNAL_IP4_DNS}
 		/usr/sbin/unbound-control flush_requestlist
 		/usr/sbin/unbound-control flush_zone ${CISCO_DEF_DOMAIN}
+		# flush infra cache
+		for i in $INTERNAL_IP4_DNS ; do
+			/usr/sbin/unbound-control flush_infra "$i"
+		done
+
 	fi
 }
 
@@ -771,18 +939,17 @@ restore_resolvconf_unbound() {
 	fi
 }
 
-# ========= Toplevel state handling  =======================================
+# === resolv.conf handling via resolvd (OpenBSD) =========
 
-kernel_is_2_6_or_above() {
-	case `uname -r` in
-		1.*|2.[012345]*)
-			return 1
-			;;
-		*)
-			return 0
-			;;
-	esac
+modify_resolvconf_resolvd() {
+	/sbin/route nameserver $TUNDEV $INTERNAL_IP4_DNS $INTERNAL_IP6_DNS
 }
+
+restore_resolvconf_resolvd() {
+	/sbin/route nameserver $TUNDEV
+}
+
+# ========= Toplevel state handling  =======================================
 
 do_pre_init() {
 	if [ "$OS" = "Linux" ]; then
@@ -790,11 +957,6 @@ do_pre_init() {
 			:
 		else # can't open /dev/net/tun
 			test -e /proc/sys/kernel/modprobe && `cat /proc/sys/kernel/modprobe` tun 2>/dev/null
-			# fix for broken devfs in kernel 2.6.x
-			if [ "`readlink /dev/net/tun`" = misc/net/tun \
-				-a ! -e /dev/net/misc/net/tun -a -e /dev/misc/net/tun ] ; then
-				ln -sf /dev/misc/net/tun /dev/net/tun
-			fi
 			# make sure tun device exists
 			if [ ! -e /dev/net/tun ]; then
 				mkdir -p /dev/net
@@ -802,18 +964,12 @@ do_pre_init() {
 				[ -x /sbin/restorecon ] && /sbin/restorecon /dev/net/tun
 			fi
 			# workaround for a possible latency caused by udev, sleep max. 10s
-			if kernel_is_2_6_or_above ; then
-				for x in `seq 100` ; do
-					(exec 6<> /dev/net/tun) > /dev/null 2>&1 && break;
-					sleep 0.1
-				done
-			fi
+			for x in $(seq 100) ; do
+				(exec 6<> /dev/net/tun) > /dev/null 2>&1 && break;
+				sleep 0.1
+			done
 		fi
-	elif [ "$OS" = "FreeBSD" ]; then
-		if ! kldstat -q -m if_tun > /dev/null; then
-			kldload if_tun
-		fi
-
+	elif [ "$OS" = "FreeBSD" -o "$OS" = "DragonFly" ]; then
 		if ! ifconfig $TUNDEV > /dev/null; then
 			ifconfig $TUNDEV create
 		fi
@@ -842,7 +998,10 @@ do_connect() {
 		echo
 	fi
 
-	set_vpngateway_route
+	case "$VPNGATEWAY" in
+		127.*|::1) ;; # localhost (probably proxy)
+		*) set_vpngateway_route ;;
+	esac
 	do_ifconfig
 	if [ -n "$CISCO_SPLIT_EXC" ]; then
 		i=0
@@ -850,7 +1009,10 @@ do_connect() {
 			eval NETWORK="\${CISCO_SPLIT_EXC_${i}_ADDR}"
 			eval NETMASK="\${CISCO_SPLIT_EXC_${i}_MASK}"
 			eval NETMASKLEN="\${CISCO_SPLIT_EXC_${i}_MASKLEN}"
-			set_exclude_route "$NETWORK" "$NETMASK" "$NETMASKLEN"
+			case "$NETWORK" in
+				0.*|127.*|169.254.*) echo "ignoring non-forwardable exclude route $NETWORK/$NETMASKLEN" >&2 ;;
+				*) set_ipv4_exclude_route "$NETWORK" "$NETMASK" "$NETMASKLEN" ;;
+			esac
 			i=`expr $i + 1`
 		done
 	fi
@@ -871,18 +1033,14 @@ do_connect() {
 			eval NETMASK="\${CISCO_SPLIT_INC_${i}_MASK}"
 			eval NETMASKLEN="\${CISCO_SPLIT_INC_${i}_MASKLEN}"
 			if [ "$NETWORK" != "0.0.0.0" ]; then
-				set_network_route "$NETWORK" "$NETMASK" "$NETMASKLEN" "$TUNDEV"
+				set_ipv4_network_route "$NETWORK" "$NETMASK" "$NETMASKLEN" "$TUNDEV"
 			else
-				set_default_route
+				set_ipv4_default_route
 			fi
 			i=`expr $i + 1`
 		done
-		for i in $INTERNAL_IP4_DNS ; do
-			echo "$i" | grep : >/dev/null || \
-				set_network_route "$i" "255.255.255.255" "32" "$TUNDEV"
-		done
 	elif [ -n "$INTERNAL_IP4_ADDRESS" ]; then
-		set_default_route
+		set_ipv4_default_route
 	fi
 	if [ -n "$CISCO_IPV6_SPLIT_INC" ]; then
 		i=0
@@ -895,11 +1053,6 @@ do_connect() {
 				set_ipv6_network_route "$NETWORK" "$NETMASKLEN" "$TUNDEV"
 			fi
 			i=`expr $i + 1`
-		done
-		for i in $INTERNAL_IP4_DNS ; do
-			if echo "$i" | grep : >/dev/null; then
-				set_ipv6_network_route "$i" "128" "$TUNDEV"
-			fi
 		done
 	elif [ -n "$INTERNAL_IP6_NETMASK" -o -n "$INTERNAL_IP6_ADDRESS" ]; then
 		set_ipv6_default_route
@@ -920,17 +1073,14 @@ do_disconnect() {
 			if [ "$NETWORK" != "0.0.0.0" ]; then
 				# FIXME: This doesn't restore previously overwritten
 				#        routes.
-				del_network_route "$NETWORK" "$NETMASK" "$NETMASKLEN" "$TUNDEV"
+				del_ipv4_network_route "$NETWORK" "$NETMASK" "$NETMASKLEN" "$TUNDEV"
 			else
-				reset_default_route
+				reset_ipv4_default_route
 			fi
 			i=`expr $i + 1`
 		done
-		for i in $INTERNAL_IP4_DNS ; do
-			del_network_route "$i" "255.255.255.255" "32" "$TUNDEV"
-		done
 	else
-		reset_default_route
+		reset_ipv4_default_route
 	fi
 	if [ -n "$CISCO_SPLIT_EXC" ]; then
 		i=0
@@ -938,7 +1088,10 @@ do_disconnect() {
 			eval NETWORK="\${CISCO_SPLIT_EXC_${i}_ADDR}"
 			eval NETMASK="\${CISCO_SPLIT_EXC_${i}_MASK}"
 			eval NETMASKLEN="\${CISCO_SPLIT_EXC_${i}_MASKLEN}"
-			del_exclude_route "$NETWORK" "$NETMASK" "$NETMASKLEN"
+			case "$NETWORK" in
+				0.*|127.*|169.254.*) ;; # ignoring non-forwardable exclude route
+				*) del_ipv4_exclude_route "$NETWORK" "$NETMASK" "$NETMASKLEN" ;;
+			esac
 			i=`expr $i + 1`
 		done
 	fi
@@ -964,9 +1117,6 @@ do_disconnect() {
 			fi
 			i=`expr $i + 1`
 		done
-		for i in $INTERNAL_IP6_DNS ; do
-			del_ipv6_network_route "$i" "128" "$TUNDEV"
-		done
 	elif [ -n "$INTERNAL_IP6_NETMASK" -o -n "$INTERNAL_IP6_ADDRESS" ]; then
 		reset_ipv6_default_route
 	fi
@@ -989,19 +1139,32 @@ do_disconnect() {
 		if [ -n "$INTERNAL_IP6_NETMASK" ]; then
 			$IPROUTE -6 addr del $INTERNAL_IP6_NETMASK dev $TUNDEV
 		fi
+		$IPROUTE link set dev "$TUNDEV" down
 	else
 		if [ -n "$INTERNAL_IP4_ADDRESS" ]; then
-			ifconfig "$TUNDEV" 0.0.0.0
+			ifconfig "$TUNDEV" `ifconfig_syntax_del "$INTERNAL_IP4_ADDRESS"`
 		fi
 		if [ -n "$INTERNAL_IP6_ADDRESS" ] && [ -z "$INTERNAL_IP6_NETMASK" ]; then
 			INTERNAL_IP6_NETMASK="$INTERNAL_IP6_ADDRESS/128"
 		fi
 		if [ -n "$INTERNAL_IP6_NETMASK" ]; then
-			ifconfig "$TUNDEV" inet6 del $INTERNAL_IP6_NETMASK
+			ifconfig "$TUNDEV" `ifconfig_syntax_del "$INTERNAL_IP6_NETMASK"`
 		fi
+		ifconfig "$TUNDEV" down
 	fi
 
-	destroy_tun_device
+	case "$OS" in
+	NetBSD|OpenBSD) # and probably others...
+		ifconfig "$TUNDEV" destroy
+		;;
+	FreeBSD|DragonFly)
+		ifconfig "$TUNDEV" destroy > /dev/null 2>&1 &
+		;;
+	esac
+}
+
+do_attempt_reconnect() {
+	set_vpngateway_route
 }
 
 #### Main
@@ -1032,6 +1195,8 @@ case "$reason" in
 		# be left with a route to the VPN server through the VPN
 		# itself, which would need to be fixed.
 		run_hooks attempt-reconnect
+		do_attempt_reconnect
+		run_hooks post-attempt-reconnect
 		;;
 	reconnect)
 		# After successfully re-establishing the session.

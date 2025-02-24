@@ -1,40 +1,48 @@
-FROM alpine:edge
-MAINTAINER Wolfgang Klinger <wolfgang@wazum.com>
+FROM alpine:3.19
+LABEL maintainer="Wolfgang Klinger <wolfgang@wazum.com>"
 
-RUN apk add --no-cache libcrypto1.1 libssl1.1 libstdc++ --repository http://dl-cdn.alpinelinux.org/alpine/edge/main
-RUN apk add --no-cache oath-toolkit-libpskc --repository http://dl-cdn.alpinelinux.org/alpine/edge/community
-RUN apk add --no-cache nettle --repository http://dl-cdn.alpinelinux.org/alpine/edge/main
-# openconnect is not yet available on main
-RUN apk add --no-cache openconnect tinyproxy --repository http://dl-cdn.alpinelinux.org/alpine/edge/testing
+RUN apk add --no-cache --virtual .build-deps \
+        gcc \
+        make \
+        musl-dev \
+        git \
+        openssl-dev \
+        python3 \
+        py3-pip \
+        zlib-dev \
+    && apk add --no-cache \
+        libcrypto3 \
+        libssl3 \
+        libstdc++ \
+        oath-toolkit-libpskc \
+        nettle \
+        openconnect \
+        tinyproxy \
+        iptables\
+    && git clone --depth=1 --branch v1.0.5 https://github.com/rofl0r/microsocks.git /tmp/microsocks \
+    && make -C /tmp/microsocks > /tmp/microsocks_build.log 2>&1 \
+    && tail -n 10 /tmp/microsocks_build.log \
+    && make -C /tmp/microsocks install \
+    && rm -rf /tmp/microsocks \
+    && python3 -m venv /tmp/venv \
+    && source /tmp/venv/bin/activate \
+    && pip install --no-cache-dir pyinstaller \
+    && pip install --no-cache-dir "vpn-slice[dnspython,setproctitle]" \
+    && pyinstaller --onefile /tmp/venv/bin/vpn-slice \
+    && mv dist/vpn-slice /usr/local/bin/ \
+    && deactivate \
+    && rm -rf /tmp/venv \
+    && apk del .build-deps \
+    && rm -rf /var/cache/apk/* /root/.cache /tmp/* build/ dist/ *.spec
 
-RUN apk add --no-cache ca-certificates wget \
-    && wget -q -O /etc/apk/keys/sgerrand.rsa.pub https://alpine-pkgs.sgerrand.com/sgerrand.rsa.pub \
-    && wget https://github.com/sgerrand/alpine-pkg-glibc/releases/download/2.30-r0/glibc-2.30-r0.apk \
-    && apk add --no-cache --virtual .build-deps glibc-2.30-r0.apk gcc make musl-dev \
-    && cd /tmp \
-    && wget https://github.com/rofl0r/microsocks/archive/v1.0.1.tar.gz \
-    && tar -xzvf v1.0.1.tar.gz \
-    && cd microsocks-1.0.1 \
-    && make \
-    && make install \
-    # add vpn-slice with dependencies (dig) https://github.com/dlenski/vpn-slice
-    && apk add --no-cache python3 bind-tools && pip3 install --upgrade pip \
-    && pip3 install https://github.com/dlenski/vpn-slice/archive/master.zip \
-    # always add the docker DNS server
-    && grep -qxF 'nameserver 127.0.0.11' /etc/resolv.conf || echo 'nameserver 127.0.0.11' >> /etc/resolv.conf \
-    && apk del .build-deps wget
+RUN echo -e '#!/bin/sh\n\
+[ "$(grep -c "nameserver 127.0.0.11" /etc/resolv.conf)" -eq 0 ] && \
+echo "nameserver 127.0.0.11" >> /etc/resolv.conf\n\
+exec "$@"' > /usr/local/bin/fix-dns && chmod +x /usr/local/bin/fix-dns
 
-# Use an up-to-date version of vpnc-script
-# https://www.infradead.org/openconnect/vpnc-script.html
-COPY vpnc-script /etc/vpnc/vpnc-script
-RUN chmod 755 /etc/vpnc/vpnc-script
-
+COPY --chmod=755 vpnc-script /etc/vpnc/vpnc-script
 COPY tinyproxy.conf /etc/tinyproxy.conf
+COPY --chmod=755 entrypoint.sh /entrypoint.sh
 
-COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
-
-EXPOSE 8888
-EXPOSE 8889
-
-ENTRYPOINT ["/entrypoint.sh"]
+EXPOSE 8888 8889
+ENTRYPOINT ["/usr/local/bin/fix-dns", "/entrypoint.sh"]
