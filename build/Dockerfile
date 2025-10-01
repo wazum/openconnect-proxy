@@ -1,5 +1,7 @@
-FROM alpine:3.19
+FROM alpine:3.21
 LABEL maintainer="Wolfgang Klinger <wolfgang@wazum.com>"
+LABEL org.opencontainers.image.description="OpenConnect VPN client with TinyProxy (HTTP) and microsocks (SOCKS5) proxy servers"
+LABEL org.opencontainers.image.source="https://github.com/wazum/openconnect-proxy"
 
 RUN apk add --no-cache --virtual .build-deps \
         gcc \
@@ -18,7 +20,7 @@ RUN apk add --no-cache --virtual .build-deps \
         nettle \
         openconnect \
         tinyproxy \
-        iptables\
+        iptables \
     && git clone --depth=1 --branch v1.0.5 https://github.com/rofl0r/microsocks.git /tmp/microsocks \
     && make -C /tmp/microsocks > /tmp/microsocks_build.log 2>&1 \
     && tail -n 10 /tmp/microsocks_build.log \
@@ -27,7 +29,7 @@ RUN apk add --no-cache --virtual .build-deps \
     && python3 -m venv /tmp/venv \
     && source /tmp/venv/bin/activate \
     && pip install --no-cache-dir pyinstaller \
-    && pip install --no-cache-dir "vpn-slice[dnspython,setproctitle]" \
+    && pip install --no-cache-dir "vpn-slice[dnspython,setproctitle] @ git+https://github.com/dlenski/vpn-slice.git@master" \
     && pyinstaller --onefile /tmp/venv/bin/vpn-slice \
     && mv dist/vpn-slice /usr/local/bin/ \
     && deactivate \
@@ -45,4 +47,6 @@ COPY tinyproxy.conf /etc/tinyproxy.conf
 COPY --chmod=755 entrypoint.sh /entrypoint.sh
 
 EXPOSE 8888 8889
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+    CMD wget -q --spider http://localhost:8888 || exit 1
 ENTRYPOINT ["/usr/local/bin/fix-dns", "/entrypoint.sh"]
