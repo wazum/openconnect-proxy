@@ -48,5 +48,5 @@ COPY --chmod=755 entrypoint.sh /entrypoint.sh
 
 EXPOSE 8888 8889
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
-    CMD wget -q --spider http://localhost:8888 || exit 1
+    CMD wget -q --spider http://localhost:${PROXY_PORT:-8888} || exit 1
 ENTRYPOINT ["/usr/local/bin/fix-dns", "/entrypoint.sh"]

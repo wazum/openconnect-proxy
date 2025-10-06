@@ -1,8 +1,22 @@
 #!/bin/sh
 
-sed "s/^Port .*$/Port 8888/" -i /etc/tinyproxy.conf
+PROXY_PORT="${PROXY_PORT:-8888}"
+SOCKS_PORT="${SOCKS_PORT:-8889}"
+RECONNECT_DELAY="${RECONNECT_DELAY:-60}"
+
+cleanup() {
+  echo "Caught signal, shutting down…" >&2
+  kill "$TINYPROXY_PID" "$MICROSOCKS_PID" 2>/dev/null
+  wait "$TINYPROXY_PID" "$MICROSOCKS_PID" 2>/dev/null
+  exit 0
+}
+trap cleanup TERM INT
+
+sed "s/^Port .*$/Port ${PROXY_PORT}/" -i /etc/tinyproxy.conf
 /usr/bin/tinyproxy -c /etc/tinyproxy.conf -d 2>&1 &
-/usr/local/bin/microsocks -i 0.0.0.0 -p 8889 2>&1 &
+TINYPROXY_PID=$!
+/usr/local/bin/microsocks -i 0.0.0.0 -p "$SOCKS_PORT" 2>&1 &
+MICROSOCKS_PID=$!
 
 run () {
   if [ -n "$VPN_SPLIT" ]; then
@@ -12,16 +26,13 @@ run () {
     ALL_OPTIONS="$OPENCONNECT_OPTIONS"
   fi
 
-  # Ask for password
   if [ -z "$OPENCONNECT_PASSWORD" ]; then
     echo "Password not set. Prompting for password..."
     eval "openconnect ${ALL_OPTIONS} -u \"${OPENCONNECT_USER}\" \"${OPENCONNECT_URL}\""
-  # Multi factor authentication (MFA)
-  elif [ -n "$OPENCONNECT_PASSWORD" ] && [ -n "$OPENCONNECT_MFA_CODE" ]; then
+  elif [ -n "$OPENCONNECT_MFA_CODE" ]; then
     echo "Password and MFA detected. Starting OpenConnect with both."
     (echo "$OPENCONNECT_PASSWORD"; echo "$OPENCONNECT_MFA_CODE") | \
     eval "openconnect ${ALL_OPTIONS} -u \"${OPENCONNECT_USER}\" --passwd-on-stdin \"${OPENCONNECT_URL}\""
-  # Standard authentication
   elif [ -n "$OPENCONNECT_PASSWORD" ]; then
     echo "Password detected. Starting OpenConnect."
     echo "$OPENCONNECT_PASSWORD" | \
@@ -33,6 +44,6 @@ run () {
 }
 
 until run; do
-  echo "OpenConnect exited. Restarting process in 60 seconds…" >&2
-  sleep 60
+  echo "OpenConnect exited. Restarting process in ${RECONNECT_DELAY} seconds…" >&2
+  sleep "$RECONNECT_DELAY"
 done
