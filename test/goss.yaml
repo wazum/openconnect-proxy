@@ -1,0 +1,53 @@
+port:
+  tcp:8888:
+    listening: true
+    ip:
+      - 0.0.0.0
+  tcp:8889:
+    listening: true
+    ip:
+      - 0.0.0.0
+
+process:
+  tinyproxy:
+    running: true
+  microsocks:
+    running: true
+
+file:
+  /entrypoint.sh:
+    exists: true
+    mode: "0755"
+    filetype: file
+  /etc/vpnc/vpnc-script:
+    exists: true
+    mode: "0755"
+    filetype: file
+  /etc/tinyproxy.conf:
+    exists: true
+    filetype: file
+  /usr/local/bin/microsocks:
+    exists: true
+    filetype: file
+  /usr/local/bin/vpn-slice:
+    exists: true
+    filetype: file
+  /usr/local/bin/fix-dns:
+    exists: true
+    mode: "0755"
+    filetype: file
+
+command:
+  openconnect_version:
+    exec: "openconnect --version"
+    exit-status: 0
+    stdout:
+      - "/OpenConnect version/"
+  tinyproxy_version:
+    exec: "tinyproxy -v"
+    exit-status: 0
+  tinyproxy_port_config:
+    exec: "grep '^Port 8888' /etc/tinyproxy.conf"
+    exit-status: 0
+    stdout:
+      - "Port 8888"
