@@ -1,0 +1,68 @@
+services:
+  ocserv:
+    build:
+      context: .
+      dockerfile: ocserv.Dockerfile
+    container_name: test-ocserv
+    privileged: true
+    environment:
+      - CA_CN=Test VPN CA
+      - CA_ORG=Test Org
+      - CA_DAYS=365
+      - SRV_CN=vpn.test.local
+      - SRV_ORG=Test Org
+      - SRV_DAYS=365
+    networks:
+      vpntest:
+        aliases:
+          - vpn.test.local
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 443 || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 15s
+
+  openconnect-proxy:
+    build:
+      context: ../../build
+      dockerfile: Dockerfile
+    container_name: test-openconnect-proxy
+    privileged: true
+    depends_on:
+      ocserv:
+        condition: service_healthy
+    environment:
+      - OPENCONNECT_URL=vpn.test.local:443
+      - OPENCONNECT_USER=test
+      - OPENCONNECT_PASSWORD=test
+      - OPENCONNECT_OPTIONS=--no-cert-check --protocol=anyconnect --no-dtls
+      - RECONNECT_DELAY=5
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    networks:
+      - vpntest
+    healthcheck:
+      test: ["CMD-SHELL", "ss -tlnp | grep 8888 && ss -tlnp | grep 8889 || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+      start_period: 15s
+
+  test-runner:
+    image: alpine:3.21
+    container_name: test-runner
+    depends_on:
+      openconnect-proxy:
+        condition: service_healthy
+    networks:
+      - vpntest
+    volumes:
+      - ./test-connectivity.sh:/test-connectivity.sh:ro
+    entrypoint: ["sh", "/test-connectivity.sh"]
+
+networks:
+  vpntest:
+    driver: bridge
