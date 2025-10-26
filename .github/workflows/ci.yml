@@ -1,0 +1,124 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  schedule:
+    - cron: '0 6 * * 1' # Every Monday 06:00 UTC
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Hadolint
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: build/Dockerfile
+
+      - name: ShellCheck entrypoint.sh
+        run: shellcheck --shell=sh build/entrypoint.sh
+
+  unit-tests:
+    name: Unit Tests (BATS)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Run BATS tests
+        run: ./test/test_helper/bats-core/bin/bats test/unit/
+
+  build-and-scan:
+    name: Build & Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./build
+          file: build/Dockerfile
+          load: true
+          tags: wazum/openconnect-proxy:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Trivy vulnerability scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: wazum/openconnect-proxy:test
+          severity: CRITICAL,HIGH
+          exit-code: 1
+          format: table
+
+  container-tests:
+    name: Container Structure Tests (goss)
+    needs: build-and-scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image
+        run: docker build -f build/Dockerfile -t wazum/openconnect-proxy:test ./build
+
+      - name: Install goss/dgoss
+        run: curl -fsSL https://goss.rocks/install | sh
+
+      - name: Run container structure tests
+        run: |
+          cd test
+          dgoss run --privileged --cap-add NET_ADMIN wazum/openconnect-proxy:test
+
+  integration:
+    name: Integration Tests
+    needs: build-and-scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start test environment
+        run: docker compose -f test/integration/docker-compose.test.yml up --build --wait --timeout 120
+
+      - name: Run connectivity tests
+        run: docker logs test-runner
+
+      - name: Verify test-runner exit code
+        run: |
+          EXIT_CODE=$(docker inspect test-runner --format='{{.State.ExitCode}}')
+          echo "test-runner exit code: $EXIT_CODE"
+          [ "$EXIT_CODE" = "0" ]
+
+      - name: Show logs on failure
+        if: failure()
+        run: docker compose -f test/integration/docker-compose.test.yml logs
+
+      - name: Tear down
+        if: always()
+        run: docker compose -f test/integration/docker-compose.test.yml down -v --remove-orphans
+
+  weekly-freshness:
+    name: Weekly Freshness Check
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image from scratch
+        run: docker build --no-cache -f build/Dockerfile -t wazum/openconnect-proxy:weekly ./build
+
+      - name: Trivy vulnerability scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: wazum/openconnect-proxy:weekly
+          severity: CRITICAL,HIGH
+          exit-code: 1
+          format: table

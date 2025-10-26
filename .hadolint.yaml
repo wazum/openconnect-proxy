@@ -1,0 +1,6 @@
+ignored:
+  - DL3018 # Pin versions in apk add — we want latest within Alpine release
+  - DL3003 # Use WORKDIR instead of cd
+  - DL3013 # Pin versions in pip — vpn-slice installed from git master intentionally
+  - SC2035 # Glob patterns — false positive on cleanup glob in RUN
+  - SC2016 # Single quotes in fix-dns script are intentional (runtime expansion)
