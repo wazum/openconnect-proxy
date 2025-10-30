@@ -86,14 +86,13 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Start test environment
-        run: docker compose -f test/integration/docker-compose.test.yml up --build --wait --timeout 120
+        run: docker compose -f test/integration/docker-compose.test.yml up --build -d
 
-      - name: Run connectivity tests
-        run: docker logs test-runner
-
-      - name: Verify test-runner exit code
+      - name: Wait for test-runner to complete
         run: |
+          timeout 120 docker wait test-runner
           EXIT_CODE=$(docker inspect test-runner --format='{{.State.ExitCode}}')
+          docker logs test-runner
           echo "test-runner exit code: $EXIT_CODE"
           [ "$EXIT_CODE" = "0" ]
 
