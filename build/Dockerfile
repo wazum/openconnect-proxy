@@ -21,6 +21,7 @@ RUN apk add --no-cache --virtual .build-deps \
         openconnect \
         tinyproxy \
         iptables \
+        jq \
     && git clone --depth=1 --branch v1.0.5 https://github.com/rofl0r/microsocks.git /tmp/microsocks \
     && make -C /tmp/microsocks > /tmp/microsocks_build.log 2>&1 \
     && tail -n 10 /tmp/microsocks_build.log \

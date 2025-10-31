@@ -19,6 +19,11 @@ TINYPROXY_PID=$!
 MICROSOCKS_PID=$!
 
 run () {
+  if [ -n "$OPENCONNECT_COOKIE_FILE" ] && [ -f "$OPENCONNECT_COOKIE_FILE" ]; then
+    OPENCONNECT_COOKIE=$(jq -r '.cookie' "$OPENCONNECT_COOKIE_FILE")
+    export OPENCONNECT_COOKIE
+  fi
+
   if [ -n "$VPN_SPLIT" ]; then
     VPN_SLICE_CMD="vpn-slice ${VPN_ROUTES}"
     ALL_OPTIONS="${OPENCONNECT_OPTIONS} --script=\"${VPN_SLICE_CMD}\""
@@ -26,7 +31,11 @@ run () {
     ALL_OPTIONS="$OPENCONNECT_OPTIONS"
   fi
 
-  if [ -z "$OPENCONNECT_PASSWORD" ]; then
+  if [ -n "$OPENCONNECT_COOKIE" ]; then
+    echo "Cookie/token detected. Starting OpenConnect with pre-authenticated session."
+    echo "$OPENCONNECT_COOKIE" | \
+    eval "openconnect ${ALL_OPTIONS} --cookie-on-stdin \"${OPENCONNECT_URL}\""
+  elif [ -z "$OPENCONNECT_PASSWORD" ]; then
     echo "Password not set. Prompting for password..."
     eval "openconnect ${ALL_OPTIONS} -u \"${OPENCONNECT_USER}\" \"${OPENCONNECT_URL}\""
   elif [ -n "$OPENCONNECT_MFA_CODE" ]; then

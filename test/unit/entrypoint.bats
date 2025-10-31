@@ -27,11 +27,21 @@ MOCK
   # conflicting with BATS's built-in run command
   eval "$(sed -n '/^run () {/,/^}/p' "$PROJECT_ROOT/build/entrypoint.sh" | sed 's/^run ()/vpn_run()/')"
 
+  cat > "$MOCK_DIR/jq" << 'MOCK'
+#!/bin/sh
+if [ "$1" = "-r" ] && [ "$2" = ".cookie" ]; then
+  cat "$3" | sed -n 's/.*"cookie": *"\([^"]*\)".*/\1/p'
+fi
+MOCK
+  chmod +x "$MOCK_DIR/jq"
+
   export OPENCONNECT_USER="testuser"
   export OPENCONNECT_URL="vpn.example.com"
   unset OPENCONNECT_PASSWORD
   unset OPENCONNECT_MFA_CODE
   unset OPENCONNECT_OPTIONS
+  unset OPENCONNECT_COOKIE
+  unset OPENCONNECT_COOKIE_FILE
   unset VPN_SPLIT
   unset VPN_ROUTES
 }
@@ -79,6 +89,75 @@ teardown() {
   stdin_content="$(cat "$MOCK_STDIN_FILE")"
   expected="$(printf 'secret123\n654321')"
   assert_equal "$stdin_content" "$expected"
+}
+
+# --- Cookie auth ---
+
+@test "cookie mode uses --cookie-on-stdin when OPENCONNECT_COOKIE is set" {
+  export OPENCONNECT_COOKIE="webvpn=ABC123DEF456"
+
+  run vpn_run
+  assert_success
+  assert_output --partial "Cookie/token detected."
+
+  args="$(cat "$MOCK_ARGS_FILE")"
+  assert_equal "$args" "--cookie-on-stdin vpn.example.com"
+
+  stdin_content="$(cat "$MOCK_STDIN_FILE")"
+  assert_equal "$stdin_content" "webvpn=ABC123DEF456"
+}
+
+@test "cookie mode does not pass -u username flag" {
+  export OPENCONNECT_COOKIE="webvpn=ABC123DEF456"
+
+  run vpn_run
+  assert_success
+
+  args="$(cat "$MOCK_ARGS_FILE")"
+  refute_output --partial "-u testuser"
+}
+
+@test "cookie mode with custom options passes them through" {
+  export OPENCONNECT_COOKIE="webvpn=ABC123DEF456"
+  export OPENCONNECT_OPTIONS="--protocol=anyconnect --servercert pin-sha256:abc"
+
+  run vpn_run
+  assert_success
+
+  args="$(cat "$MOCK_ARGS_FILE")"
+  assert_equal "$args" "--protocol=anyconnect --servercert pin-sha256:abc --cookie-on-stdin vpn.example.com"
+}
+
+@test "cookie file mode reads cookie from JSON file" {
+  cookie_file="$MOCK_DIR/cookie.json"
+  echo '{"cookie": "webvpn=FROM_FILE_789", "host": "vpn.example.com"}' > "$cookie_file"
+  export OPENCONNECT_COOKIE_FILE="$cookie_file"
+
+  run vpn_run
+  assert_success
+  assert_output --partial "Cookie/token detected."
+
+  stdin_content="$(cat "$MOCK_STDIN_FILE")"
+  assert_equal "$stdin_content" "webvpn=FROM_FILE_789"
+}
+
+@test "cookie takes precedence over password auth" {
+  export OPENCONNECT_COOKIE="webvpn=PRIORITY"
+  export OPENCONNECT_PASSWORD="secret123"
+
+  run vpn_run
+  assert_success
+  assert_output --partial "Cookie/token detected."
+  refute_output --partial "Password detected."
+}
+
+@test "cookie file is ignored when file does not exist" {
+  export OPENCONNECT_COOKIE_FILE="/nonexistent/cookie.json"
+  export OPENCONNECT_PASSWORD="secret123"
+
+  run vpn_run
+  assert_success
+  assert_output --partial "Password detected."
 }
 
 # --- OPENCONNECT_OPTIONS ---
