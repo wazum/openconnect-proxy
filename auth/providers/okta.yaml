@@ -1,0 +1,130 @@
+name: Okta
+
+# Sourced from Okta Sign-In Widget source (github.com/okta/okta-signin-widget),
+# Okta developer docs, selenium-okta project, VoucherCodes Playwright guide.
+# Covers both Okta Classic Engine and Okta Identity Engine (OIE).
+
+saml_paths:
+  anyconnect: "/+CSCOE+/saml/sp/login"
+  globalprotect: "/global-protect/prelogin.esp"
+
+fields:
+  username:
+    ids:
+      - okta-signin-username        # Okta Classic
+      - input28                     # OIE (varies, but common)
+      - identifier                  # OIE
+    labels:
+      - Username
+      - Email
+    types:
+      - text
+      - email
+    # OIE uses name="identifier" attribute
+    attrs:
+      - name=identifier
+      - name=username
+
+  password:
+    ids:
+      - okta-signin-password        # Okta Classic
+      - input36                     # OIE (varies)
+    labels:
+      - Password
+    types:
+      - password
+    attrs:
+      - name=credentials.passcode   # OIE
+      - name=password
+
+  otp:
+    ids:
+      - okta-signin-otp             # Okta Classic
+    labels:
+      - Enter code
+      - Enter Code
+      - Verification code
+      - Code
+    types:
+      - tel
+      - text
+    attrs:
+      - name=credentials.passcode   # OIE reuses this
+      - name=answer                 # Okta Classic MFA
+      - autocomplete=one-time-code
+
+buttons:
+  next:
+    ids:
+      - okta-signin-submit          # Okta Classic
+    labels:
+      - Next
+      - Sign In
+      - Verify
+    # OIE uses data-type and class-based selectors
+    selectors:
+      - "input[type=submit]"
+      - "button[type=submit]"
+
+  sign_in:
+    ids:
+      - okta-signin-submit
+    labels:
+      - Sign In
+      - Sign in
+      - Log In
+      - Log in
+    selectors:
+      - "input[type=submit]"
+      - "button[type=submit]"
+
+  verify:
+    ids:
+      - okta-signin-submit
+    labels:
+      - Verify
+      - Submit
+      - Send
+    selectors:
+      - "input[type=submit]"
+      - "button[type=submit]"
+
+prompts:
+  pick_account:
+    detect: []
+    click: []
+
+  stay_signed_in:
+    detect:
+      - Do not challenge me on this device
+    click:
+      - "No"
+
+  mfa_alternatives:
+    detect:
+      - Verify it's you with a security method
+      - Select a factor
+    click:
+      - Google Authenticator
+      - Enter a code
+      - Okta Verify
+      - Use code
+
+  mfa_totp_select:
+    detect: []
+    click:
+      - Enter code from application
+      - Google Authenticator
+      - Enter a code
+
+cookies:
+  anyconnect:
+    - webvpn
+    - webvpnc
+    - SVPNCOOKIE
+  globalprotect:
+    - portal-userauthcookie
+    - portal-prelogonuserauthcookie
+    - prelogin-cookie
+
+timeout: 90

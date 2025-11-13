@@ -1,0 +1,147 @@
+name: Microsoft Entra ID (Azure AD)
+
+# Sourced from ms-sso-openconnect, openconnect-sso, Checkly docs, Elio Struyf's
+# M365 MFA guide, and Playwright GitHub issues. Covers standard Entra ID,
+# ADFS, and common tenant customizations across multiple languages.
+
+saml_paths:
+  anyconnect: "/+CSCOE+/saml/sp/login"
+  globalprotect: "/global-protect/prelogin.esp"
+
+fields:
+  username:
+    ids:
+      - userNameInput    # ADFS
+      - username
+      - loginfmt         # Entra ID primary
+      - i0116            # Entra ID numeric ID
+      - identifierId     # Google-style (some federated setups)
+      - email
+    labels:
+      - User name
+      - Username
+      - E-Mail
+      - Email
+      - Benutzername     # German
+      - Benutzer-ID      # German
+      - Benutzer ID      # German (alt)
+    types:
+      - email
+      - text
+
+  password:
+    ids:
+      - passwordInput    # ADFS
+      - password
+      - i0118            # Entra ID numeric ID
+      - passwd           # Entra ID
+      - Passwd           # Entra ID (capitalized)
+    labels:
+      - Password
+      - Kennwort         # German
+      - Passwort         # German
+      - Mot de passe     # French
+    types:
+      - password
+
+  otp:
+    ids:
+      - idTxtBx_SAOTCC_OTC    # Entra ID TOTP primary
+      - idTxtBx_SAOTCC_OTP    # Entra ID TOTP alternate
+      - otp
+      - otc
+      - code
+    labels:
+      - Verification code
+      - Security code
+      - Code
+      - OTP
+      - Einmalcode       # German
+    types:
+      - tel
+      - text
+
+buttons:
+  next:
+    ids:
+      - idSIButton9      # Entra ID universal submit/next button
+    labels:
+      - Next
+      - Weiter           # German
+      - Continue
+      - Suivant          # French
+      - Avanti           # Italian
+
+  sign_in:
+    ids:
+      - idSIButton9      # same button, different context
+      - submitButton     # ADFS
+    labels:
+      - Sign in
+      - Anmelden         # German
+      - Connexion        # French
+      - Accedi           # Italian
+      - Continue
+
+  verify:
+    ids:
+      - idSubmit_SAOTCC_Continue    # Entra ID MFA verify
+      - idSIButton9
+      - submitButton
+    labels:
+      - Verify
+      - Überprüfen       # German
+      - Continue
+      - Next
+      - Submit
+
+prompts:
+  pick_account:
+    detect:
+      - Pick an account
+      - Konto auswählen  # German
+    click:
+      - Use another account
+      - Use a different account
+      - Sign in with another account
+      - Add another account
+      - Mit einem anderen Konto anmelden    # German
+      - Anderes Konto verwenden             # German
+
+  stay_signed_in:
+    detect:
+      - Stay signed in
+      - Angemeldet bleiben    # German
+    click:
+      - "Yes"
+      - Ja                    # German
+
+  mfa_alternatives:
+    detect: []
+    click:
+      - Use your password instead
+      - Use password instead
+      - Use a different verification option
+      - Use a verification code
+      - Use another method
+      - Use a different method
+      - I can't use my Microsoft Authenticator app right now
+
+  mfa_totp_select:
+    detect: []
+    selector: "div[data-value='PhoneAppOTP']"
+    click:
+      - Use a verification code
+      - Authenticator app
+
+cookies:
+  anyconnect:
+    - webvpn
+    - webvpnc
+    - SVPNCOOKIE
+  globalprotect:
+    - portal-userauthcookie
+    - portal-prelogonuserauthcookie
+    - prelogin-cookie
+
+timeout: 90

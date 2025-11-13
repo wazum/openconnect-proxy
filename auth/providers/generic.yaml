@@ -1,0 +1,101 @@
+name: Generic SAML/SSO
+
+# Fallback provider using common HTML patterns.
+# Works with many IdPs out of the box. For best results,
+# mount a custom YAML config via VPN_AUTH_CONFIG.
+
+saml_paths:
+  anyconnect: "/+CSCOE+/saml/sp/login"
+  globalprotect: "/global-protect/prelogin.esp"
+
+fields:
+  username:
+    ids: []
+    labels:
+      - Username
+      - User name
+      - Email
+      - E-Mail
+    types:
+      - email
+      - text
+
+  password:
+    ids: []
+    labels:
+      - Password
+    types:
+      - password
+
+  otp:
+    ids: []
+    labels:
+      - Verification code
+      - Security code
+      - Code
+      - OTP
+    types:
+      - tel
+
+buttons:
+  next:
+    ids: []
+    labels:
+      - Next
+      - Continue
+    selectors:
+      - "input[type=submit]"
+      - "button[type=submit]"
+
+  sign_in:
+    ids: []
+    labels:
+      - Sign in
+      - Sign In
+      - Log in
+      - Log In
+      - Submit
+    selectors:
+      - "input[type=submit]"
+      - "button[type=submit]"
+
+  verify:
+    ids: []
+    labels:
+      - Verify
+      - Submit
+      - Continue
+    selectors:
+      - "input[type=submit]"
+      - "button[type=submit]"
+
+prompts:
+  pick_account:
+    detect: []
+    click: []
+
+  stay_signed_in:
+    detect:
+      - Stay signed in
+    click:
+      - "Yes"
+
+  mfa_alternatives:
+    detect: []
+    click: []
+
+  mfa_totp_select:
+    detect: []
+    click: []
+
+cookies:
+  anyconnect:
+    - webvpn
+    - webvpnc
+    - SVPNCOOKIE
+  globalprotect:
+    - portal-userauthcookie
+    - portal-prelogonuserauthcookie
+    - prelogin-cookie
+
+timeout: 120
