@@ -1,0 +1,40 @@
+services:
+  saml-auth:
+    build: ./auth
+    environment:
+      - VPN_URL=${VPN_URL}
+      - VPN_USER=${VPN_USER}
+      - VPN_PASSWORD=${VPN_PASSWORD}
+      - VPN_TOTP_SECRET=${VPN_TOTP_SECRET:-}
+      - VPN_PROTOCOL=${VPN_PROTOCOL:-anyconnect}
+      - VPN_AUTH_PROVIDER=${VPN_AUTH_PROVIDER:-microsoft}
+      - AUTH_OUTPUT_FILE=/auth/cookie.json
+      - AUTH_TIMEOUT=${AUTH_TIMEOUT:-}
+      - AUTH_DEBUG=${AUTH_DEBUG:-0}
+    volumes:
+      - auth-data:/auth
+      # Mount corporate CA cert if your VPN uses a private CA:
+      # - ./corporate-ca.crt:/usr/local/share/ca-certificates/corporate-ca.crt:ro
+      # Mount custom provider config (optional):
+      # - ./my-provider.yaml:/app/custom-provider.yaml
+
+  vpn:
+    build: ./build
+    depends_on:
+      saml-auth:
+        condition: service_completed_successfully
+    privileged: true
+    cap_add:
+      - NET_ADMIN
+    environment:
+      - OPENCONNECT_URL=${VPN_URL}
+      - OPENCONNECT_COOKIE_FILE=/auth/cookie.json
+      - OPENCONNECT_OPTIONS=--protocol=${VPN_PROTOCOL:-anyconnect}
+    volumes:
+      - auth-data:/auth:ro
+    ports:
+      - "${PROXY_PORT:-8888}:8888"
+      - "${SOCKS_PORT:-8889}:8889"
+
+volumes:
+  auth-data:

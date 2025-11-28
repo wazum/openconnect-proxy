@@ -204,6 +204,146 @@ Local Machine               HTTP PROXY           JUMP HOST           TARGET
 - admin-proxy ---------> actual-host (as someuser)
 ```
 
+# SAML/SSO Authentication (Microsoft Entra ID, Okta, etc.)
+
+For VPN gateways that use browser-based SAML/OAuth authentication, this project provides a **sidecar auth helper** that automates the login flow using headless Chromium via Playwright.
+
+The sidecar pattern keeps the main VPN image small (~80 MB). The auth helper runs once to obtain a session cookie, then exits.
+
+## Built-in providers
+
+| Provider | `VPN_AUTH_PROVIDER` | Covers |
+|---|---|---|
+| **Microsoft Entra ID** | `microsoft` (default) | Azure AD, ADFS, M365 SSO |
+| **Okta** | `okta` | Okta Classic Engine, Okta Identity Engine (OIE) |
+| **Generic** | `generic` | Fallback using common HTML form patterns |
+
+Each provider is a YAML config defining form selectors, button labels, and cookie names. See `auth/providers/` for details.
+
+## Setup
+
+1. Set environment variables in your `.env` file:
+
+```sh
+VPN_URL=https://vpn.example.com
+VPN_USER=user@company.com
+VPN_PASSWORD=your-password
+VPN_PROTOCOL=anyconnect
+VPN_AUTH_PROVIDER=microsoft
+VPN_TOTP_SECRET=YOUR_BASE32_TOTP_SECRET
+```
+
+`VPN_TOTP_SECRET` is optional — only needed if your IdP requires TOTP-based MFA. You can extract the TOTP secret from your authenticator app setup (the base32 string shown during QR code enrollment).
+
+2. Run with Docker Compose:
+
+```sh
+docker compose -f docker-compose.saml.yml --env-file .env up
+```
+
+The `saml-auth` container launches headless Chromium, completes the login flow, extracts the VPN session cookie, and writes it to a shared volume. The `vpn` container then starts OpenConnect using that cookie.
+
+## Custom provider config
+
+If the built-in presets don't work for your IdP, create a custom YAML config:
+
+```yaml
+name: My Corporate IdP
+saml_paths:
+  anyconnect: "/saml/login"
+fields:
+  username:
+    ids: [login-email]
+    labels: [Email]
+    types: [email]
+  password:
+    ids: [login-password]
+    types: [password]
+  otp:
+    ids: [mfa-code]
+    labels: [Verification code]
+buttons:
+  next:
+    labels: [Continue]
+    selectors: ["button[type=submit]"]
+  sign_in:
+    labels: [Sign In]
+    selectors: ["button[type=submit]"]
+  verify:
+    labels: [Verify]
+prompts:
+  stay_signed_in:
+    detect: [Stay signed in]
+    click: ["Yes"]
+cookies:
+  anyconnect: [webvpn, SVPNCOOKIE]
+```
+
+Mount it and set `VPN_AUTH_CONFIG`:
+
+```sh
+docker run --rm \
+  -e VPN_URL=vpn.example.com \
+  -e VPN_USER=user@company.com \
+  -e VPN_PASSWORD=secret \
+  -e VPN_AUTH_CONFIG=/app/custom-provider.yaml \
+  -v ./my-provider.yaml:/app/custom-provider.yaml:ro \
+  -v /tmp/auth:/auth \
+  your-auth-image
+```
+
+## Manual cookie mode
+
+If you obtain a VPN cookie through other means (browser developer tools, another script), you can pass it directly without the auth helper:
+
+```sh
+docker run -it --rm --privileged \
+  -e OPENCONNECT_URL=vpn.example.com \
+  -e OPENCONNECT_COOKIE="webvpn=ABC123..." \
+  -e OPENCONNECT_OPTIONS="--protocol=anyconnect" \
+  -p 8888:8888 -p 8889:8889 \
+  wazum/openconnect-proxy:latest
+```
+
+## TLS / Custom CA certificates
+
+If your VPN gateway uses a private CA or self-signed certificate, mount the CA cert into the auth container:
+
+```sh
+docker run --rm \
+  -v ./corporate-ca.crt:/usr/local/share/ca-certificates/corporate-ca.crt:ro \
+  -e VPN_URL=vpn.example.com \
+  ...
+  your-auth-image
+```
+
+The entrypoint automatically runs `update-ca-certificates` when certs are found in that directory.
+
+As a last resort for testing only, you can disable TLS validation entirely with `AUTH_IGNORE_TLS_ERRORS=1`. **Do not use this in production** — it exposes your IdP credentials to man-in-the-middle attacks.
+
+## Debugging
+
+Set `AUTH_DEBUG=1` for verbose logging and screenshots saved to `/tmp/saml-step-*.png`:
+
+```sh
+docker run --rm -e AUTH_DEBUG=1 -e VPN_URL=... -v /tmp:/tmp your-auth-image
+```
+
+## Environment variables (SAML auth helper)
+
+| Variable | Required | Description |
+|---|---|---|
+| `VPN_URL` | Yes | VPN gateway URL |
+| `VPN_USER` | Yes | IdP username |
+| `VPN_PASSWORD` | Yes | IdP password |
+| `VPN_PROTOCOL` | No | `anyconnect` (default) or `globalprotect` |
+| `VPN_AUTH_PROVIDER` | No | Built-in preset: `microsoft` (default), `okta`, `generic` |
+| `VPN_AUTH_CONFIG` | No | Path to custom provider YAML (overrides `VPN_AUTH_PROVIDER`) |
+| `VPN_TOTP_SECRET` | No | TOTP base32 secret for MFA auto-fill |
+| `AUTH_TIMEOUT` | No | Override provider timeout in seconds |
+| `AUTH_DEBUG` | No | Set to `1` for debug screenshots and verbose logging |
+| `AUTH_IGNORE_TLS_ERRORS` | No | Set to `1` to disable TLS validation (**testing only**) |
+
 # Build
 
 You can build the container yourself with:
