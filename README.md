@@ -11,6 +11,8 @@ Supported protocols: anyconnect (default), nc, gp, pulse, f5, fortinet, array
 You can find the image on docker hub:
 https://hub.docker.com/r/wazum/openconnect-proxy
 
+Available architectures: `linux/amd64`, `linux/arm64`
+
 # Requirements
 
 If you don't want to set the environment variables on the command line
