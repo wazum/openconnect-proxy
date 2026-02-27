@@ -354,6 +354,12 @@ docker run --rm -e AUTH_DEBUG=1 -e VPN_URL=... -v /tmp:/tmp your-auth-image
 
 Deployment targets often sit behind a VPN that requires MFA. This makes CI/CD pipelines tricky — a GitLab Runner or GitHub Actions workflow can't tap a push notification or type a TOTP code.
 
+### Requirements
+
+- **Self-hosted GitLab Runner** with Docker executor and `privileged = true` in `config.toml` — GitLab SaaS shared runners do not allow privileged containers
+- **Docker-in-Docker** (`docker:dind`) service — the VPN container needs `--privileged` for OpenConnect to create the tun0 interface
+- Split tunneling (`VPN_SPLIT=1`) is not supported in CI/CD — routing table changes don't propagate through Docker network namespaces. Use proxy-based access instead (`http_proxy` / `https_proxy`)
+
 There are two approaches depending on how the VPN authenticates:
 
 1. **Password + MFA** (standard) — OpenConnect handles authentication directly via `OPENCONNECT_PASSWORD` and `OPENCONNECT_TOTP_SECRET` (or `OPENCONNECT_MFA_CODE`). No sidecar needed.

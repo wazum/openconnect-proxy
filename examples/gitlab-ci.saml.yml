@@ -32,7 +32,7 @@ deploy:
     # Start VPN tunnel (TOTP code is generated inside the container)
     - >
       docker run -d --name vpn
-      --privileged --cap-add NET_ADMIN
+      --privileged
       --network vpn-net
       -e OPENCONNECT_URL=$VPN_URL
       -e OPENCONNECT_USER=$VPN_USER
@@ -43,9 +43,14 @@ deploy:
     # Wait for tunnel to be ready
     - |
       for i in $(seq 1 30); do
-        if docker exec vpn wget -q --spider http://localhost:8888 2>/dev/null; then
+        if docker exec vpn wget -q --spider http://127.0.0.1:8888 2>/dev/null; then
           echo "VPN tunnel ready"
           break
+        fi
+        if [ "$i" -eq 30 ]; then
+          echo "ERROR: VPN tunnel failed to start" >&2
+          docker logs vpn
+          exit 1
         fi
         echo "Waiting for VPN... ($i/30)"
         sleep 2
@@ -75,6 +80,7 @@ deploy-saml:
     - docker build -t saml-auth ./auth
     - docker build -t vpn-proxy ./build
     - docker network create vpn-net
+    - docker volume rm auth-data 2>/dev/null || true
     - docker volume create auth-data
     # Authenticate via headless browser (TOTP code generated automatically)
     - >
@@ -92,7 +98,7 @@ deploy-saml:
     # Start VPN tunnel with session cookie
     - >
       docker run -d --name vpn
-      --privileged --cap-add NET_ADMIN
+      --privileged
       --network vpn-net
       -e OPENCONNECT_URL=$VPN_URL
       -e OPENCONNECT_COOKIE_FILE=/auth/cookie.json
@@ -102,9 +108,14 @@ deploy-saml:
     # Wait for tunnel to be ready
     - |
       for i in $(seq 1 30); do
-        if docker exec vpn wget -q --spider http://localhost:8888 2>/dev/null; then
+        if docker exec vpn wget -q --spider http://127.0.0.1:8888 2>/dev/null; then
           echo "VPN tunnel ready"
           break
+        fi
+        if [ "$i" -eq 30 ]; then
+          echo "ERROR: VPN tunnel failed to start" >&2
+          docker logs vpn
+          exit 1
         fi
         echo "Waiting for VPN... ($i/30)"
         sleep 2
