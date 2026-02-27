@@ -1,4 +1,4 @@
-FROM alpine:3.21
+FROM alpine:3.23
 LABEL maintainer="Wolfgang Klinger <wolfgang@wazum.com>"
 LABEL org.opencontainers.image.description="OpenConnect VPN client with TinyProxy (HTTP) and microsocks (SOCKS5) proxy servers"
 LABEL org.opencontainers.image.source="https://github.com/wazum/openconnect-proxy"
