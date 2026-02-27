@@ -17,6 +17,7 @@ RUN apk add --no-cache --virtual .build-deps \
         libssl3 \
         libstdc++ \
         oath-toolkit-libpskc \
+        oath-toolkit-oathtool \
         nettle \
         openconnect \
         tinyproxy \

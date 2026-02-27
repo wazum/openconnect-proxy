@@ -1,0 +1,122 @@
+# Example: Deploy through VPN with MFA authentication
+#
+# Two jobs are provided:
+#   1. "deploy" — Standard auth (password + TOTP), no sidecar needed
+#   2. "deploy-saml" — SAML/SSO auth via headless browser sidecar
+#
+# Pick the one that matches your VPN gateway and delete the other.
+#
+# Required GitLab CI/CD variables (Settings > CI/CD > Variables):
+#   VPN_URL          - VPN gateway URL (e.g. https://vpn.client.com)
+#   VPN_USER         - VPN username
+#   VPN_PASSWORD     - VPN password (masked)
+#   VPN_TOTP_SECRET  - TOTP base32 secret (masked)
+#
+# Additional variables for SAML auth:
+#   VPN_PROTOCOL     - anyconnect (default) or globalprotect
+#   VPN_AUTH_PROVIDER - microsoft (default), okta, or generic
+
+# --- Standard auth (password + TOTP) ---
+# Use this when the VPN gateway accepts username/password directly.
+# The container generates the TOTP code automatically from the secret.
+deploy:
+  stage: deploy
+  image: docker:27
+  services:
+    - docker:27-dind
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
+  before_script:
+    - docker build -t vpn-proxy ./build
+    - docker network create vpn-net
+    # Start VPN tunnel (TOTP code is generated inside the container)
+    - >
+      docker run -d --name vpn
+      --privileged --cap-add NET_ADMIN
+      --network vpn-net
+      -e OPENCONNECT_URL=$VPN_URL
+      -e OPENCONNECT_USER=$VPN_USER
+      -e OPENCONNECT_PASSWORD=$VPN_PASSWORD
+      -e OPENCONNECT_TOTP_SECRET=$VPN_TOTP_SECRET
+      -e OPENCONNECT_OPTIONS="--protocol=${VPN_PROTOCOL:-anyconnect}"
+      vpn-proxy
+    # Wait for tunnel to be ready
+    - |
+      for i in $(seq 1 30); do
+        if docker exec vpn wget -q --spider http://localhost:8888 2>/dev/null; then
+          echo "VPN tunnel ready"
+          break
+        fi
+        echo "Waiting for VPN... ($i/30)"
+        sleep 2
+      done
+  script:
+    - >
+      docker run --rm
+      --network vpn-net
+      -e http_proxy=http://vpn:8888
+      -e https_proxy=http://vpn:8888
+      alpine/curl curl -sS http://internal-server.client.local/deploy
+  after_script:
+    - docker rm -f vpn 2>/dev/null || true
+    - docker network rm vpn-net 2>/dev/null || true
+
+# --- SAML/SSO auth (headless browser sidecar) ---
+# Use this when the VPN gateway redirects to a browser-based IdP login
+# (Microsoft Entra ID, Okta, etc.).
+deploy-saml:
+  stage: deploy
+  image: docker:27
+  services:
+    - docker:27-dind
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
+  before_script:
+    - docker build -t saml-auth ./auth
+    - docker build -t vpn-proxy ./build
+    - docker network create vpn-net
+    - docker volume create auth-data
+    # Authenticate via headless browser (TOTP code generated automatically)
+    - >
+      docker run --rm
+      --network vpn-net
+      -e VPN_URL=$VPN_URL
+      -e VPN_USER=$VPN_USER
+      -e VPN_PASSWORD=$VPN_PASSWORD
+      -e VPN_TOTP_SECRET=$VPN_TOTP_SECRET
+      -e VPN_PROTOCOL=${VPN_PROTOCOL:-anyconnect}
+      -e VPN_AUTH_PROVIDER=${VPN_AUTH_PROVIDER:-microsoft}
+      -e AUTH_OUTPUT_FILE=/auth/cookie.json
+      -v auth-data:/auth
+      saml-auth
+    # Start VPN tunnel with session cookie
+    - >
+      docker run -d --name vpn
+      --privileged --cap-add NET_ADMIN
+      --network vpn-net
+      -e OPENCONNECT_URL=$VPN_URL
+      -e OPENCONNECT_COOKIE_FILE=/auth/cookie.json
+      -e OPENCONNECT_OPTIONS="--protocol=${VPN_PROTOCOL:-anyconnect}"
+      -v auth-data:/auth:ro
+      vpn-proxy
+    # Wait for tunnel to be ready
+    - |
+      for i in $(seq 1 30); do
+        if docker exec vpn wget -q --spider http://localhost:8888 2>/dev/null; then
+          echo "VPN tunnel ready"
+          break
+        fi
+        echo "Waiting for VPN... ($i/30)"
+        sleep 2
+      done
+  script:
+    - >
+      docker run --rm
+      --network vpn-net
+      -e http_proxy=http://vpn:8888
+      -e https_proxy=http://vpn:8888
+      alpine/curl curl -sS http://internal-server.client.local/deploy
+  after_script:
+    - docker rm -f vpn 2>/dev/null || true
+    - docker volume rm auth-data 2>/dev/null || true
+    - docker network rm vpn-net 2>/dev/null || true

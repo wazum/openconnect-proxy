@@ -44,6 +44,13 @@ MOCK
   unset OPENCONNECT_COOKIE_FILE
   unset VPN_SPLIT
   unset VPN_ROUTES
+  unset OPENCONNECT_TOTP_SECRET
+
+  cat > "$MOCK_DIR/oathtool" << 'MOCK'
+#!/bin/sh
+echo "123456"
+MOCK
+  chmod +x "$MOCK_DIR/oathtool"
 }
 
 teardown() {
@@ -88,6 +95,36 @@ teardown() {
 
   stdin_content="$(cat "$MOCK_STDIN_FILE")"
   expected="$(printf 'secret123\n654321')"
+  assert_equal "$stdin_content" "$expected"
+}
+
+# --- TOTP auto-generation ---
+
+@test "TOTP secret generates MFA code automatically" {
+  export OPENCONNECT_PASSWORD="secret123"
+  export OPENCONNECT_TOTP_SECRET="JBSWY3DPEHPK3PXP"
+
+  run vpn_run
+  assert_success
+  assert_output --partial "TOTP code generated from secret."
+  assert_output --partial "Password and MFA detected."
+
+  stdin_content="$(cat "$MOCK_STDIN_FILE")"
+  expected="$(printf 'secret123\n123456')"
+  assert_equal "$stdin_content" "$expected"
+}
+
+@test "TOTP secret is ignored when MFA code is already set" {
+  export OPENCONNECT_PASSWORD="secret123"
+  export OPENCONNECT_MFA_CODE="999999"
+  export OPENCONNECT_TOTP_SECRET="JBSWY3DPEHPK3PXP"
+
+  run vpn_run
+  assert_success
+  refute_output --partial "TOTP code generated"
+
+  stdin_content="$(cat "$MOCK_STDIN_FILE")"
+  expected="$(printf 'secret123\n999999')"
   assert_equal "$stdin_content" "$expected"
 }
 

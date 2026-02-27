@@ -34,7 +34,13 @@ See the [openconnect documentation](https://www.infradead.org/openconnect/manual
 
 Either set the password in the `.env` file or leave the variable `OPENCONNECT_PASSWORD` unset, so you get prompted when starting up the container.
 
-Optionally set a multi factor authentication code:
+Optionally set a TOTP secret to auto-generate MFA codes:
+
+```sh
+OPENCONNECT_TOTP_SECRET=<TOTP base32 secret>
+```
+
+Or provide a one-time MFA code directly:
 
 ```sh
 OPENCONNECT_MFA_CODE=<Multi factor authentication code>
@@ -343,6 +349,89 @@ docker run --rm -e AUTH_DEBUG=1 -e VPN_URL=... -v /tmp:/tmp your-auth-image
 | `AUTH_TIMEOUT` | No | Override provider timeout in seconds |
 | `AUTH_DEBUG` | No | Set to `1` for debug screenshots and verbose logging |
 | `AUTH_IGNORE_TLS_ERRORS` | No | Set to `1` to disable TLS validation (**testing only**) |
+
+# CI/CD Pipelines with VPN + MFA
+
+Deployment targets often sit behind a VPN that requires MFA. This makes CI/CD pipelines tricky — a GitLab Runner or GitHub Actions workflow can't tap a push notification or type a TOTP code.
+
+There are two approaches depending on how the VPN authenticates:
+
+1. **Password + MFA** (standard) — OpenConnect handles authentication directly via `OPENCONNECT_PASSWORD` and `OPENCONNECT_TOTP_SECRET` (or `OPENCONNECT_MFA_CODE`). No sidecar needed.
+2. **SAML/SSO + MFA** — The VPN gateway redirects to a browser-based IdP login (Microsoft Entra, Okta, etc.). Use the auth sidecar to automate the browser flow.
+
+In both cases, use a **CI service account with TOTP-based MFA** so the code can be generated automatically.
+
+## MFA compatibility
+
+Not all MFA methods can be automated. Ask the client to enable **TOTP** for the CI service account:
+
+| MFA Method | Automated? | Notes |
+|---|---|---|
+| TOTP (Google Authenticator, MS Authenticator code mode) | Yes | Set `OPENCONNECT_TOTP_SECRET` or `VPN_TOTP_SECRET` |
+| Push notification (MS Authenticator, Okta Verify) | No | Requires human tap |
+| Number matching (MS Entra) | No | Requires human input |
+| SMS code | No | Requires phone access |
+| Hardware token (YubiKey, RSA) | No | Requires physical device |
+
+## Standard auth (password + MFA code)
+
+When the VPN gateway accepts username/password directly (no browser redirect), you only need the VPN proxy image:
+
+```
+┌──────────────┐      ┌──────────────┐      ┌─────────────────┐
+│  CI Runner   │─────>│  VPN Proxy   │─────>│ Internal Server │
+│ (GitLab/GH)  │      │ (openconnect │      │  (behind VPN)   │
+│              │      │ + tinyproxy) │      │                 │
+└──────────────┘      └──────────────┘      └─────────────────┘
+
+1. Start VPN container with OPENCONNECT_TOTP_SECRET
+2. openconnect authenticates with password + auto-generated TOTP
+3. Deploy commands routed through http_proxy
+```
+
+Set `OPENCONNECT_TOTP_SECRET` and the container generates the TOTP code automatically — no extra tools needed in your pipeline. See [`examples/gitlab-ci.saml.yml`](examples/gitlab-ci.saml.yml) — the "Standard auth" job shows this approach.
+
+## SAML/SSO auth (browser-based login)
+
+When the VPN gateway redirects to a SAML IdP, the auth sidecar automates the browser flow:
+
+```
+┌──────────────┐      ┌──────────────┐      ┌──────────────┐      ┌─────────────────┐
+│  CI Runner   │─────>│  SAML Auth   │─────>│  VPN Proxy   │─────>│ Internal Server │
+│ (GitLab/GH)  │      │  (headless   │      │ (openconnect │      │  (behind VPN)   │
+│              │      │   browser)   │      │ + tinyproxy) │      │                 │
+└──────────────┘      └──────────────┘      └──────────────┘      └─────────────────┘
+
+1. Run auth sidecar with VPN_TOTP_SECRET
+2. Headless browser completes SAML login + auto TOTP --> cookie.json
+3. VPN container connects with session cookie
+4. Deploy commands routed through http_proxy
+```
+
+The sidecar generates the TOTP code automatically via `VPN_TOTP_SECRET` and writes a session cookie that the VPN container picks up. See [`examples/gitlab-ci.saml.yml`](examples/gitlab-ci.saml.yml) — the "SAML auth" job shows this approach.
+
+## GitLab CI example
+
+Configure these as **masked CI/CD variables** (Settings > CI/CD > Variables):
+
+| Variable | Required | Description |
+|---|---|---|
+| `VPN_URL` | Yes | VPN gateway URL |
+| `VPN_USER` | Yes | VPN / IdP username |
+| `VPN_PASSWORD` | Yes | VPN / IdP password |
+| `VPN_TOTP_SECRET` | No | TOTP base32 secret — the example maps this to `OPENCONNECT_TOTP_SECRET` (standard) or `VPN_TOTP_SECRET` (SAML) |
+| `VPN_PROTOCOL` | No | `anyconnect` (default) or `globalprotect` |
+| `VPN_AUTH_PROVIDER` | SAML only | `microsoft` (default), `okta`, or `generic` |
+
+See [`examples/gitlab-ci.saml.yml`](examples/gitlab-ci.saml.yml) for ready-to-use job definitions covering both auth modes.
+
+## GitHub Actions
+
+The same pattern works with GitHub Actions — use Docker commands in `run` steps and store secrets in repository settings. The container workflow is identical.
+
+# Security
+
+A security audit of the codebase was performed on 2026-02-27, covering command injection, input validation, path traversal, credential exposure, and authentication bypass categories. No exploitable vulnerabilities were found. All environment variables (`OPENCONNECT_*`, `VPN_*`, `PROXY_PORT`, etc.) are trusted operator-controlled inputs and are not exposed to untrusted user input at runtime.
 
 # Build
 

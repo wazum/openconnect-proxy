@@ -19,6 +19,12 @@ TINYPROXY_PID=$!
 MICROSOCKS_PID=$!
 
 run () {
+  if [ -n "$OPENCONNECT_TOTP_SECRET" ] && [ -z "$OPENCONNECT_MFA_CODE" ]; then
+    OPENCONNECT_MFA_CODE=$(oathtool --totp --base32 "$OPENCONNECT_TOTP_SECRET")
+    export OPENCONNECT_MFA_CODE
+    echo "TOTP code generated from secret."
+  fi
+
   if [ -n "$OPENCONNECT_COOKIE_FILE" ] && [ -f "$OPENCONNECT_COOKIE_FILE" ]; then
     OPENCONNECT_COOKIE=$(jq -r '.cookie' "$OPENCONNECT_COOKIE_FILE")
     export OPENCONNECT_COOKIE
