@@ -3,7 +3,8 @@ LABEL maintainer="Wolfgang Klinger <wolfgang@wazum.com>"
 LABEL org.opencontainers.image.description="OpenConnect VPN client with TinyProxy (HTTP) and microsocks (SOCKS5) proxy servers"
 LABEL org.opencontainers.image.source="https://github.com/wazum/openconnect-proxy"
 
-RUN apk add --no-cache --virtual .build-deps \
+RUN apk upgrade --no-cache \
+    && apk add --no-cache --virtual .build-deps \
         gcc \
         make \
         musl-dev \
