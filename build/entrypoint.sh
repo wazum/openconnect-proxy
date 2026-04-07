@@ -19,7 +19,18 @@ TINYPROXY_PID=$!
 MICROSOCKS_PID=$!
 
 run () {
-  if [ -n "$OPENCONNECT_TOTP_SECRET" ] && [ -z "$OPENCONNECT_MFA_CODE" ]; then
+  # Decide once (on the first attempt) whether to derive the MFA code from the
+  # TOTP secret. An explicit OPENCONNECT_MFA_CODE supplied at startup always
+  # takes precedence; otherwise we regenerate from the secret on every retry.
+  if [ -z "$OPENCONNECT_MFA_FROM_TOTP" ]; then
+    if [ -n "$OPENCONNECT_TOTP_SECRET" ] && [ -z "$OPENCONNECT_MFA_CODE" ]; then
+      OPENCONNECT_MFA_FROM_TOTP=1
+    else
+      OPENCONNECT_MFA_FROM_TOTP=0
+    fi
+  fi
+
+  if [ "$OPENCONNECT_MFA_FROM_TOTP" = "1" ]; then
     OPENCONNECT_MFA_CODE=$(oathtool --totp --base32 "$OPENCONNECT_TOTP_SECRET")
     export OPENCONNECT_MFA_CODE
     echo "TOTP code generated from secret."

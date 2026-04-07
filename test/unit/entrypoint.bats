@@ -45,10 +45,16 @@ MOCK
   unset VPN_SPLIT
   unset VPN_ROUTES
   unset OPENCONNECT_TOTP_SECRET
+  unset OPENCONNECT_MFA_FROM_TOTP
 
+  export OATHTOOL_COUNTER_FILE="$MOCK_DIR/oathtool_counter"
+  echo 0 > "$OATHTOOL_COUNTER_FILE"
   cat > "$MOCK_DIR/oathtool" << 'MOCK'
 #!/bin/sh
-echo "123456"
+n=$(cat "$OATHTOOL_COUNTER_FILE")
+n=$((n + 1))
+echo "$n" > "$OATHTOOL_COUNTER_FILE"
+printf '12345%s\n' "$n"
 MOCK
   chmod +x "$MOCK_DIR/oathtool"
 }
@@ -110,22 +116,40 @@ teardown() {
   assert_output --partial "Password and MFA detected."
 
   stdin_content="$(cat "$MOCK_STDIN_FILE")"
-  expected="$(printf 'secret123\n123456')"
+  expected="$(printf 'secret123\n123451')"
   assert_equal "$stdin_content" "$expected"
 }
 
-@test "TOTP secret is ignored when MFA code is already set" {
+@test "TOTP secret is regenerated on every run" {
+  export OPENCONNECT_PASSWORD="secret123"
+  export OPENCONNECT_TOTP_SECRET="JBSWY3DPEHPK3PXP"
+
+  # Must invoke vpn_run twice in the SAME shell so that OPENCONNECT_MFA_CODE
+  # set/exported by the first call leaks into the second — that mirrors the
+  # production retry-loop scenario. Using bats `run` would spawn a fresh
+  # subshell and hide the bug.
+  vpn_run >/dev/null
+  first_stdin="$(cat "$MOCK_STDIN_FILE")"
+  assert_equal "$first_stdin" "$(printf 'secret123\n123451')"
+
+  vpn_run >/dev/null
+  second_stdin="$(cat "$MOCK_STDIN_FILE")"
+  assert_equal "$second_stdin" "$(printf 'secret123\n123452')"
+}
+
+@test "explicit MFA code takes precedence over TOTP secret" {
   export OPENCONNECT_PASSWORD="secret123"
   export OPENCONNECT_MFA_CODE="999999"
   export OPENCONNECT_TOTP_SECRET="JBSWY3DPEHPK3PXP"
 
-  run vpn_run
-  assert_success
-  refute_output --partial "TOTP code generated"
+  vpn_run >/dev/null
+  first_stdin="$(cat "$MOCK_STDIN_FILE")"
+  assert_equal "$first_stdin" "$(printf 'secret123\n999999')"
 
-  stdin_content="$(cat "$MOCK_STDIN_FILE")"
-  expected="$(printf 'secret123\n999999')"
-  assert_equal "$stdin_content" "$expected"
+  # Reconnect must keep using the explicit code, not regenerate from the secret.
+  vpn_run >/dev/null
+  second_stdin="$(cat "$MOCK_STDIN_FILE")"
+  assert_equal "$second_stdin" "$(printf 'secret123\n999999')"
 }
 
 # --- Cookie auth ---
