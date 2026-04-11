@@ -53,7 +53,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Trivy vulnerability scan
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@0.35.0
         with:
           image-ref: wazum/openconnect-proxy:test
           severity: CRITICAL,HIGH
@@ -107,7 +107,7 @@ jobs:
         run: docker build --no-cache -f build/Dockerfile -t wazum/openconnect-proxy:weekly ./build
 
       - name: Trivy vulnerability scan
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@0.35.0
         with:
           image-ref: wazum/openconnect-proxy:weekly
           severity: CRITICAL,HIGH

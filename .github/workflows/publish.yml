@@ -53,7 +53,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=build-test
 
       - name: Trivy vulnerability scan
-        uses: aquasecurity/trivy-action@0.29.0
+        uses: aquasecurity/trivy-action@0.35.0
         with:
           image-ref: wazum/openconnect-proxy:test
           severity: CRITICAL,HIGH
@@ -85,16 +85,8 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Start test environment
-        run: docker compose -f test/integration/docker-compose.test.yml up --build -d
-
-      - name: Wait for test-runner to complete
-        run: |
-          timeout 120 docker wait test-runner
-          EXIT_CODE=$(docker inspect test-runner --format='{{.State.ExitCode}}')
-          docker logs test-runner
-          echo "test-runner exit code: $EXIT_CODE"
-          [ "$EXIT_CODE" = "0" ]
+      - name: Run integration tests
+        run: docker compose -f test/integration/docker-compose.test.yml up --build --exit-code-from test-runner
 
       - name: Show logs on failure
         if: failure()
