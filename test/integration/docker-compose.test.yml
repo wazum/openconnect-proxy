@@ -36,8 +36,8 @@ services:
       - OPENCONNECT_URL=vpn.test.local:443
       - OPENCONNECT_USER=test
       - OPENCONNECT_PASSWORD=test
-      - OPENCONNECT_OPTIONS=--no-cert-check --protocol=anyconnect --no-dtls
-      - RECONNECT_DELAY=5
+      - OPENCONNECT_OPTIONS=--servercert ${OPENCONNECT_SERVERCERT:-pin-sha256:placeholder} --protocol=anyconnect --no-dtls
+      - RECONNECT_DELAY=30
     cap_add:
       - NET_ADMIN
     devices:
@@ -45,23 +45,57 @@ services:
     networks:
       - vpntest
     healthcheck:
-      test: ["CMD-SHELL", "ss -tlnp | grep 8888 && ss -tlnp | grep 8889 || exit 1"]
-      interval: 5s
-      timeout: 3s
-      retries: 15
-      start_period: 15s
+      interval: 2s
+      retries: 3
+      start_period: 30s
 
-  test-runner:
-    image: alpine:3.21
-    container_name: test-runner
-    depends_on:
-      openconnect-proxy:
-        condition: service_healthy
+  openconnect-proxy-preconnect:
+    build:
+      context: ../../build
+      dockerfile: Dockerfile
+    container_name: test-openconnect-proxy-preconnect
+    privileged: true
+    environment:
+      - OPENCONNECT_URL=198.51.100.1:443
+      - OPENCONNECT_USER=test
+      - OPENCONNECT_PASSWORD=test
+      - OPENCONNECT_OPTIONS=--protocol=anyconnect --no-dtls
+      - RECONNECT_DELAY=5
+      - TUNNEL_GATE_INTERVAL=1
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
     networks:
       - vpntest
-    volumes:
-      - ./test-connectivity.sh:/test-connectivity.sh:ro
-    entrypoint: ["sh", "/test-connectivity.sh"]
+    healthcheck:
+      interval: 2s
+      retries: 3
+      start_period: 30s
+
+  openconnect-proxy-disabled:
+    build:
+      context: ../../build
+      dockerfile: Dockerfile
+    container_name: test-openconnect-proxy-disabled
+    privileged: true
+    environment:
+      - OPENCONNECT_URL=198.51.100.1:443
+      - OPENCONNECT_USER=test
+      - OPENCONNECT_PASSWORD=test
+      - OPENCONNECT_OPTIONS=--protocol=anyconnect --no-dtls
+      - RECONNECT_DELAY=5
+      - TUNNEL_GATE=0
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    networks:
+      - vpntest
+    healthcheck:
+      interval: 2s
+      retries: 3
+      start_period: 30s
 
 networks:
   vpntest:
