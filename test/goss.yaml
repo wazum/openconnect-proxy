@@ -36,6 +36,10 @@ file:
     exists: true
     mode: "0755"
     filetype: file
+  /usr/local/bin/tunnel-gate.sh:
+    exists: true
+    mode: "0755"
+    filetype: file
 
 command:
   openconnect_version:
@@ -51,3 +55,15 @@ command:
     exit-status: 0
     stdout:
       - "Port 8888"
+  tunnel_gate_chain_exists:
+    exec: "iptables -L OPENCONNECT_PROXY_GATE -n"
+    exit-status: 0
+  tunnel_gate_jump_rule_exists:
+    exec: "iptables -C INPUT -m comment --comment openconnect-proxy-gate -j OPENCONNECT_PROXY_GATE"
+    exit-status: 0
+  tunnel_gate_reject_rule_present_at_start:
+    exec: "iptables -C OPENCONNECT_PROXY_GATE -p tcp -m multiport --dports 8888,8889 -m comment --comment openconnect-proxy-gate -j REJECT --reject-with tcp-reset"
+    exit-status: 0
+  tunnel_gate_script_present:
+    exec: "test -x /usr/local/bin/tunnel-gate.sh"
+    exit-status: 0

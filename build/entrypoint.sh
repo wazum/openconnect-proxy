@@ -3,20 +3,63 @@
 PROXY_PORT="${PROXY_PORT:-8888}"
 SOCKS_PORT="${SOCKS_PORT:-8889}"
 RECONNECT_DELAY="${RECONNECT_DELAY:-60}"
+TUNNEL_GATE="${TUNNEL_GATE:-1}"
+
+# Source the gate library. Path is overridable via TUNNEL_GATE_LIB so BATS
+# can point at the working tree.
+# shellcheck disable=SC1090,SC1091
+. "${TUNNEL_GATE_LIB:-/usr/local/bin/tunnel-gate.sh}"
+
+GATE_PID=""
+TINYPROXY_PID=""
+MICROSOCKS_PID=""
 
 cleanup() {
-  echo "Caught signal, shutting down…" >&2
+  status=$?
+  trap - EXIT TERM INT
+  echo "Shutting down…" >&2
+  [ -n "$GATE_PID" ] && kill "$GATE_PID" 2>/dev/null
   kill "$TINYPROXY_PID" "$MICROSOCKS_PID" 2>/dev/null
-  wait "$TINYPROXY_PID" "$MICROSOCKS_PID" 2>/dev/null
-  exit 0
+  wait "$GATE_PID" "$TINYPROXY_PID" "$MICROSOCKS_PID" 2>/dev/null
+
+  if [ "$TUNNEL_GATE" = "1" ]; then
+    # Remove the jump rule (matched by exact comment) and the owned chain.
+    # shellcheck disable=SC2046
+    iptables -D INPUT $(_gate_jump_args) 2>/dev/null
+    iptables -F "$GATE_CHAIN" 2>/dev/null
+    iptables -X "$GATE_CHAIN" 2>/dev/null
+    if [ "${GATE_IPV6_ACTIVE:-0}" = "1" ]; then
+      # shellcheck disable=SC2046
+      ip6tables -D INPUT $(_gate_jump_args) 2>/dev/null
+      ip6tables -F "$GATE_CHAIN" 2>/dev/null
+      ip6tables -X "$GATE_CHAIN" 2>/dev/null
+    fi
+  fi
+  exit "$status"
 }
-trap cleanup TERM INT
+trap cleanup EXIT
+trap 'exit 0' TERM INT
+
+if [ "$TUNNEL_GATE" = "1" ]; then
+  if ! gate_init_closed; then
+    echo "FATAL: cannot install tunnel-gate REJECT rule; set TUNNEL_GATE=0 to disable, or grant NET_ADMIN" >&2
+    exit 1
+  fi
+fi
 
 sed "s/^Port .*$/Port ${PROXY_PORT}/" -i /etc/tinyproxy.conf
 /usr/bin/tinyproxy -c /etc/tinyproxy.conf -d 2>&1 &
 TINYPROXY_PID=$!
 /usr/local/bin/microsocks -i 0.0.0.0 -p "$SOCKS_PORT" 2>&1 &
 MICROSOCKS_PID=$!
+
+if [ "$TUNNEL_GATE" = "1" ]; then
+  ( until /usr/local/bin/tunnel-gate.sh; do
+      echo "tunnel-gate exited, restarting in 5s" >&2
+      sleep 5
+    done ) &
+  GATE_PID=$!
+fi
 
 run () {
   # Decide once (on the first attempt) whether to derive the MFA code from the

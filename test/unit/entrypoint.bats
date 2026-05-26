@@ -303,13 +303,24 @@ teardown() {
 
 # --- Signal handling ---
 
-@test "entrypoint.sh traps TERM and INT signals" {
-  run grep 'trap cleanup TERM INT' "$PROJECT_ROOT/build/entrypoint.sh"
+@test "entrypoint.sh cleans up on every exit" {
+  run grep 'trap cleanup EXIT' "$PROJECT_ROOT/build/entrypoint.sh"
+  assert_success
+}
+
+@test "entrypoint.sh converts TERM and INT into clean exits" {
+  run grep "trap 'exit 0' TERM INT" "$PROJECT_ROOT/build/entrypoint.sh"
   assert_success
 }
 
 @test "cleanup function kills proxy PIDs" {
-  run grep -A3 'cleanup()' "$PROJECT_ROOT/build/entrypoint.sh"
+  run grep -A6 'cleanup()' "$PROJECT_ROOT/build/entrypoint.sh"
   assert_output --partial 'TINYPROXY_PID'
   assert_output --partial 'MICROSOCKS_PID'
+}
+
+@test "cleanup preserves the entrypoint exit status" {
+  run grep -A30 'cleanup()' "$PROJECT_ROOT/build/entrypoint.sh"
+  assert_output --partial 'status=$?'
+  assert_output --partial 'exit "$status"'
 }

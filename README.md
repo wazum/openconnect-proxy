@@ -127,6 +127,58 @@ VPN_SPLIT=1
 VPN_ROUTES=172.16.0.0/12 XXX.XXX.XXX.XXX/32
 ```
 
+> [!WARNING]
+> **Behavior change:** The HTTP/SOCKS proxy ports actively refuse
+> connections (TCP RST) while the VPN tunnel is down, instead of
+> silently accepting them. This prevents connection storms from
+> clients that only health-check TCP port reachability and assume
+> "port open" means "proxy working".
+>
+> - At container start, ports 8888/8889 reject connections until
+>   openconnect authenticates and the VPN interface is up.
+> - On tunnel drop or during reconnect retries, the ports reject
+>   again until the tunnel is re-established.
+> - Gating is enforced at the `iptables` layer via a dedicated chain
+>   (`OPENCONNECT_PROXY_GATE`), mirrored on `ip6tables` when available.
+>   The container requires the `NET_ADMIN` capability (already
+>   documented).
+> - **Container `HEALTHCHECK`** now also fails if either proxy
+>   listener has died, not only if the tunnel is down.
+> - To restore the old always-accepting behavior at the proxy ports,
+>   set `TUNNEL_GATE=0`. Note that the new `HEALTHCHECK` still requires
+>   the VPN interface to be up; if your orchestrator reacts to the
+>   unhealthy state, override the healthcheck at the compose/k8s level
+>   as well.
+> - Tune detection latency with `TUNNEL_GATE_INTERVAL` (seconds,
+>   default `2`).
+> - If you override the VPN interface name via `OPENCONNECT_OPTIONS`
+>   (e.g. `--interface=vpn0`), set `TUNNEL_GATE_INTERFACE` to match.
+> - IPv6 gating is auto-enabled on dual-stack hosts. Force on with
+>   `TUNNEL_GATE_IPV6=1` (startup fails if `ip6tables` is unusable);
+>   force off with `TUNNEL_GATE_IPV6=0`.
+>
+> Clients should be configured to retry/back off on RST rather than
+> failing hard.
+
+> [!NOTE]
+> **`network_mode: host`:** The gate edits the host firewall directly
+> in host network mode. An abnormal container exit (SIGKILL, host
+> crash) can leave the `OPENCONNECT_PROXY_GATE` chain, the tagged
+> jump rule, and the contained REJECT rule on the host. The chain
+> is uniquely named and the jump rule carries the
+> `openconnect-proxy-gate` comment for unambiguous cleanup:
+>
+> ```sh
+> iptables -D INPUT -m comment --comment openconnect-proxy-gate -j OPENCONNECT_PROXY_GATE 2>/dev/null
+> iptables -F OPENCONNECT_PROXY_GATE 2>/dev/null
+> iptables -X OPENCONNECT_PROXY_GATE 2>/dev/null
+> # repeat with ip6tables if IPv6 gating was active
+> ```
+>
+> The container also reconciles any pre-existing chain idempotently
+> at startup. Host processes using the proxy via `127.0.0.1` are
+> also subject to the gate.
+
 # Configure proxy
 
 The container is connected via _openconnect_ and now you can configure your browser
