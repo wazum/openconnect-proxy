@@ -83,7 +83,7 @@ classify_tcp_probe() {
 # stdout: one of open | refused | timeout | error:...
 tcp_probe() {
   local host="$1" port="$2" out rc
-  out=$(docker run --rm --network "$NET" alpine:3.21 \
+  out=$(docker run --rm --network "$NET" alpine:3.24 \
           sh -c "nc -z -v -w 3 $host $port 2>&1"; echo "rc:$?") 2>/dev/null
   rc="${out##*rc:}"
   out="${out%rc:*}"

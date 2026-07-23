@@ -1,42 +1,52 @@
 # Builder stage - compile ocserv from source
-FROM alpine:3.21 AS builder
+FROM alpine:3.24 AS builder
 
-ARG OCSERV_VER="1.2.2"
+ARG OCSERV_VER="1.5.0"
 
 RUN apk add --no-cache \
+    build-base \
     curl \
-    g++ \
     gnutls-dev \
     libev-dev \
-    libnl3-dev \
-    libseccomp-dev \
     linux-headers \
-    linux-pam-dev \
-    lz4-dev \
-    make \
+    meson \
+    nettle-dev \
+    ninja \
+    pkgconf \
     readline-dev \
     xz
 
 WORKDIR /ocserv
 
 RUN curl -fL "https://www.infradead.org/ocserv/download/ocserv-${OCSERV_VER}.tar.xz" | tar -xJ --strip-components=1 && \
-    ./configure --prefix=/usr/local && \
-    make && \
-    make install
+    meson setup build \
+        --prefix=/usr/local \
+        -Dfirewall-script=iptables \
+        -Dgeoip=disabled \
+        -Dgssapi=disabled \
+        -Dlibnl=disabled \
+        -Dliboath=disabled \
+        -Dlibwrap=disabled \
+        -Dlz4=disabled \
+        -Dmaxmind=disabled \
+        -Dpam=disabled \
+        -Dradius=disabled \
+        -Dseccomp=disabled \
+        -Dsystemd=disabled \
+        -Dutmp=disabled && \
+    meson compile -C build && \
+    meson install -C build
 
 # Runtime stage
-FROM alpine:3.21
+FROM alpine:3.24
 
 RUN apk add --no-cache \
     ca-certificates \
     gnutls \
     libev \
-    libnl3 \
-    libseccomp \
-    lz4-libs \
-    linux-pam \
     iptables \
     netcat-openbsd \
+    nettle \
     openssl
 
 COPY --from=builder /usr/local/sbin/ocserv /usr/local/sbin/

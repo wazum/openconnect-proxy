@@ -1,15 +1,14 @@
 version: 2
 updates:
   - package-ecosystem: docker
-    directory: /build
+    directories:
+      - /auth
+      - /build
+      - /test/integration
     schedule:
       interval: weekly
-    commit-message:
-      prefix: "docker"
 
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
-    commit-message:
-      prefix: "ci"
