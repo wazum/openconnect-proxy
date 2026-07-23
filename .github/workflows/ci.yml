@@ -13,7 +13,7 @@ jobs:
     name: Lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Hadolint
         uses: hadolint/hadolint-action@v3.3.0
@@ -27,7 +27,7 @@ jobs:
     name: Unit Tests (BATS)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           submodules: recursive
 
@@ -38,7 +38,7 @@ jobs:
     name: Build & Security Scan
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: docker/setup-buildx-action@v4
 
@@ -65,7 +65,7 @@ jobs:
     needs: build-and-scan
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Build image
         run: docker build -f build/Dockerfile -t wazum/openconnect-proxy:test ./build
@@ -93,7 +93,7 @@ jobs:
     needs: build-and-scan
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Run integration tests
         run: bash test/integration/run.sh
@@ -111,7 +111,7 @@ jobs:
     if: github.event_name == 'schedule'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Build image from scratch
         run: docker build --no-cache -f build/Dockerfile -t wazum/openconnect-proxy:weekly ./build
