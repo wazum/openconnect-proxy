@@ -48,6 +48,24 @@ Or provide a one-time MFA code directly:
 OPENCONNECT_MFA_CODE=<Multi factor authentication code>
 ```
 
+Automatic reconnects are unlimited by default. To cap them, set the maximum
+number of retries allowed after the initial connection attempt:
+
+```sh
+MAX_RECONNECT_ATTEMPTS=3
+```
+
+When the limit is reached, the container exits with a non-zero status instead
+of continuing to submit credentials. `0` (the default) keeps unlimited retries.
+Every unsuccessful OpenConnect exit counts, including failures caused by
+temporary network problems rather than rejected credentials.
+
+The counter resets whenever the container starts. Avoid an unconditional
+`restart: always`/`restart: unless-stopped` policy when using this protection,
+because restarting the container also resumes credential attempts. Monitor the
+non-zero exit with your orchestrator or host alerting system if notification is
+required.
+
 # Run container in foreground
 
 To start the container in foreground run:

@@ -3,7 +3,19 @@
 PROXY_PORT="${PROXY_PORT:-8888}"
 SOCKS_PORT="${SOCKS_PORT:-8889}"
 RECONNECT_DELAY="${RECONNECT_DELAY:-60}"
+MAX_RECONNECT_ATTEMPTS="${MAX_RECONNECT_ATTEMPTS:-0}"
 TUNNEL_GATE="${TUNNEL_GATE:-1}"
+
+validate_reconnect_settings() {
+  case "$MAX_RECONNECT_ATTEMPTS" in
+    ''|*[!0-9]*)
+      echo "FATAL: MAX_RECONNECT_ATTEMPTS must be a non-negative integer" >&2
+      return 1
+      ;;
+  esac
+}
+
+validate_reconnect_settings || exit 1
 
 # Source the gate library. Path is overridable via TUNNEL_GATE_LIB so BATS
 # can point at the working tree.
@@ -112,7 +124,24 @@ run () {
   fi
 }
 
-until run; do
-  echo "OpenConnect exited. Restarting process in ${RECONNECT_DELAY} seconds…" >&2
-  sleep "$RECONNECT_DELAY"
-done
+run_with_retries() {
+  reconnect_attempt=0
+
+  while ! "$@"; do
+    if [ "$MAX_RECONNECT_ATTEMPTS" -gt 0 ] \
+      && [ "$reconnect_attempt" -ge "$MAX_RECONNECT_ATTEMPTS" ]; then
+      echo "OpenConnect exited. Maximum reconnect attempts (${MAX_RECONNECT_ATTEMPTS}) reached; exiting." >&2
+      return 1
+    fi
+
+    reconnect_attempt=$((reconnect_attempt + 1))
+    if [ "$MAX_RECONNECT_ATTEMPTS" -gt 0 ]; then
+      echo "OpenConnect exited. Reconnect attempt ${reconnect_attempt}/${MAX_RECONNECT_ATTEMPTS} in ${RECONNECT_DELAY} seconds…" >&2
+    else
+      echo "OpenConnect exited. Restarting process in ${RECONNECT_DELAY} seconds…" >&2
+    fi
+    sleep "$RECONNECT_DELAY"
+  done
+}
+
+run_with_retries run
