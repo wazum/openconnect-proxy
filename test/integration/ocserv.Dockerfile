@@ -2,10 +2,12 @@
 FROM alpine:3.24 AS builder
 
 ARG OCSERV_VER="1.5.0"
+ARG OCSERV_SHA256="e7e7073fd51b62c09b8629f1320558a1e80b8bf832a51513dd95e4e309a9d11e"
 
 RUN apk add --no-cache \
     build-base \
     curl \
+    gperf \
     gnutls-dev \
     libev-dev \
     linux-headers \
@@ -13,12 +15,18 @@ RUN apk add --no-cache \
     nettle-dev \
     ninja \
     pkgconf \
+    protobuf-c-compiler \
     readline-dev \
     xz
 
 WORKDIR /ocserv
 
-RUN curl -fL "https://www.infradead.org/ocserv/download/ocserv-${OCSERV_VER}.tar.xz" | tar -xJ --strip-components=1 && \
+RUN curl --retry 5 --retry-all-errors --connect-timeout 15 -fsSL \
+        "https://gitlab.com/openconnect/ocserv/-/archive/${OCSERV_VER}/ocserv-${OCSERV_VER}.tar.gz" \
+        -o /tmp/ocserv.tar.gz && \
+    echo "${OCSERV_SHA256}  /tmp/ocserv.tar.gz" | sha256sum -c - && \
+    tar -xzf /tmp/ocserv.tar.gz --strip-components=1 && \
+    rm /tmp/ocserv.tar.gz && \
     meson setup build \
         --prefix=/usr/local \
         -Dfirewall-script=iptables \
