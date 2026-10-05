@@ -49,8 +49,6 @@ jobs:
           file: build/Dockerfile
           load: true
           tags: wazum/openconnect-proxy:test
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
 
       - name: Trivy vulnerability scan
         uses: aquasecurity/trivy-action@v0.36.0
@@ -105,21 +103,3 @@ jobs:
       - name: Tear down
         if: always()
         run: docker compose -f test/integration/docker-compose.test.yml down -v --remove-orphans
-
-  weekly-freshness:
-    name: Weekly Freshness Check
-    if: github.event_name == 'schedule'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Build image from scratch
-        run: docker build --no-cache -f build/Dockerfile -t wazum/openconnect-proxy:weekly ./build
-
-      - name: Trivy vulnerability scan
-        uses: aquasecurity/trivy-action@v0.36.0
-        with:
-          image-ref: wazum/openconnect-proxy:weekly
-          severity: CRITICAL,HIGH
-          exit-code: 1
-          format: table

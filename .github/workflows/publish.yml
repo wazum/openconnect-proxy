@@ -49,8 +49,6 @@ jobs:
           file: build/Dockerfile
           load: true
           tags: wazum/openconnect-proxy:test
-          cache-from: type=gha,scope=build-test
-          cache-to: type=gha,mode=max,scope=build-test
 
       - name: Trivy vulnerability scan
         uses: aquasecurity/trivy-action@v0.36.0
@@ -146,5 +144,3 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=publish
-          cache-to: type=gha,mode=max,scope=publish
