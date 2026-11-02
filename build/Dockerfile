@@ -46,7 +46,7 @@ echo "nameserver 127.0.0.11" >> /etc/resolv.conf\n\
 exec "$@"' > /usr/local/bin/fix-dns && chmod +x /usr/local/bin/fix-dns
 
 COPY --chmod=755 vpnc-script /etc/vpnc/vpnc-script
-COPY tinyproxy.conf /etc/tinyproxy.conf
+COPY tinyproxy.conf /etc/tinyproxy/tinyproxy.conf
 COPY --chmod=755 entrypoint.sh /entrypoint.sh
 COPY --chmod=755 tunnel-gate.sh /usr/local/bin/tunnel-gate.sh
 

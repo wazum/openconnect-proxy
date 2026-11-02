@@ -59,8 +59,8 @@ if [ "$TUNNEL_GATE" = "1" ]; then
   fi
 fi
 
-sed "s/^Port .*$/Port ${PROXY_PORT}/" -i /etc/tinyproxy.conf
-/usr/bin/tinyproxy -c /etc/tinyproxy.conf -d 2>&1 &
+sed "s/^Port .*$/Port ${PROXY_PORT}/" -i /etc/tinyproxy/tinyproxy.conf
+/usr/bin/tinyproxy -c /etc/tinyproxy/tinyproxy.conf -d 2>&1 &
 TINYPROXY_PID=$!
 /usr/local/bin/microsocks -i 0.0.0.0 -p "$SOCKS_PORT" 2>&1 &
 MICROSOCKS_PID=$!

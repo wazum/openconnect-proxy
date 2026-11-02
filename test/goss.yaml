@@ -23,7 +23,7 @@ file:
     exists: true
     mode: "0755"
     filetype: file
-  /etc/tinyproxy.conf:
+  /etc/tinyproxy/tinyproxy.conf:
     exists: true
     filetype: file
   /usr/local/bin/microsocks:
@@ -51,7 +51,7 @@ command:
     exec: "tinyproxy -v"
     exit-status: 0
   tinyproxy_port_config:
-    exec: "grep '^Port 8888' /etc/tinyproxy.conf"
+    exec: "grep '^Port 8888' /etc/tinyproxy/tinyproxy.conf"
     exit-status: 0
     stdout:
       - "Port 8888"
