@@ -1,4 +1,4 @@
-FROM python:3.15-slim-bookworm
+FROM python:3.15-slim-trixie
 
 RUN pip install --no-cache-dir playwright pyotp pyyaml \
     && playwright install --with-deps chromium \
