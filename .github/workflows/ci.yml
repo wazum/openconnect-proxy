@@ -70,15 +70,17 @@ jobs:
 
       - name: Install goss/dgoss
         env:
-          GOSS_VERSION: v0.4.9
+          GOSS_VERSION: 0.4.10
         run: |
-          curl -fsSLO "https://github.com/goss-org/goss/releases/download/${GOSS_VERSION}/goss-linux-amd64"
-          curl -fsSLO "https://github.com/goss-org/goss/releases/download/${GOSS_VERSION}/goss-linux-amd64.sha256"
-          curl -fsSLO "https://github.com/goss-org/goss/releases/download/${GOSS_VERSION}/dgoss"
-          curl -fsSLO "https://github.com/goss-org/goss/releases/download/${GOSS_VERSION}/dgoss.sha256"
-          sha256sum --check goss-linux-amd64.sha256
+          base="https://github.com/goss-org/goss/releases/download/v${GOSS_VERSION}"
+          curl -fsSLO "${base}/goss_${GOSS_VERSION}_linux_x86_64.tar.gz"
+          curl -fsSLO "${base}/goss_${GOSS_VERSION}_SHA256SUMS"
+          curl -fsSLO "${base}/dgoss"
+          curl -fsSLO "${base}/dgoss.sha256"
+          sha256sum --check --ignore-missing "goss_${GOSS_VERSION}_SHA256SUMS"
           sha256sum --check dgoss.sha256
-          sudo install -m 0755 goss-linux-amd64 /usr/local/bin/goss
+          tar -xzf "goss_${GOSS_VERSION}_linux_x86_64.tar.gz" goss
+          sudo install -m 0755 goss /usr/local/bin/goss
           sudo install -m 0755 dgoss /usr/local/bin/dgoss
 
       - name: Run container structure tests
