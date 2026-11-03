@@ -1,8 +1,8 @@
 # Builder stage - compile ocserv from source
 FROM alpine:3.24 AS builder
 
-ARG OCSERV_VER="1.5.0"
-ARG OCSERV_SHA256="e7e7073fd51b62c09b8629f1320558a1e80b8bf832a51513dd95e4e309a9d11e"
+ARG OCSERV_VER="1.6.0"
+ARG OCSERV_SHA256="e7893e8781801df1ec751996005f77b7db884305b42e2c1ab41cf56c17516cca"
 
 RUN apk add --no-cache \
     build-base \
